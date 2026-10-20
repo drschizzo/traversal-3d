@@ -174,7 +174,7 @@
   .big-score { display: flex; justify-content: center; gap: 30px; margin: 18px 0 8px; font-family: var(--display); font-size: 40px; font-weight: 700; }
   #overReason { text-align: center; color: var(--muted); font-size: 14px; }
 
-  @media (max-width: 1280px) { #toolbar button span { display: none; } #toolbar button { font-size: 16px; padding: 7px 11px; } .side { min-width: 120px; } }
+  @media (max-width: 1280px) { #toolbar button:not(#btnPlay) span { display: none; } #btnPlay span { font-size: 12px; } #toolbar button { font-size: 16px; padding: 7px 11px; } .side { min-width: 120px; } }
   /* la barre d'outils passe sous le tableau des scores quand elle risque de le chevaucher */
   @media (max-width: 1440px) { #toolbar { top: 86px; } #coach, #review { top: 142px; max-height: calc(100vh - 218px); } }
   @media (max-width: 1000px) { #logo { display: none; } }
@@ -185,6 +185,7 @@
     .side .sub { display: none; }
     #toolbar { top: auto; bottom: 70px; right: 50%; transform: translateX(50%); }
     #card { display: none; }
+    #toolbar .nav-ext { display: none; }
     #coach, #review { top: 64px; left: 16px; right: 16px; width: auto; max-height: 38vh; }
     #status { bottom: 14px; font-size: 13px; }
   }
@@ -216,8 +217,11 @@
   </div>
   <div id="world"></div>
   <div id="toolbar" class="glass">
+    <button id="btnFirst" class="hidden nav-ext" title="Début de la partie">⏮</button>
+    <button id="btnPrev" class="hidden" title="Coup précédent (←)">◀</button>
     <button id="btnPlay" class="hidden" title="Mettre en pause après ce coup">⏸<span> Pause</span></button>
-    <button id="btnStep" class="hidden" title="Jouer un seul coup">⏭<span> Coup suivant</span></button>
+    <button id="btnNext" class="hidden" title="Coup suivant (→)">▶</button>
+    <button id="btnLast" class="hidden nav-ext" title="Retour au présent">⏭</button>
     <button id="btnHint" title="Ce que le bot jouerait à ta place">💡<span> Conseil</span></button>
     <button id="btnUndo" title="Annuler le dernier coup">↶<span> Annuler</span></button>
     <button id="btnCoach" title="Afficher le raisonnement du bot">◎<span> Analyse</span></button>
@@ -298,6 +302,6 @@
   </div>
 </div>
 
-<script type="module" src="./main.js?v=43"></script>
+<script type="module" src="./main.js?v=46"></script>
 </body>
 </html>

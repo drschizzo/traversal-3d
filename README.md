@@ -42,7 +42,8 @@ Les règles complètes et officielles sont sur [traversalgame.com/rules](https:/
 ## Ce que propose cette version
 
 - **Trois modes** : 2 joueurs en local, contre un bot (facile, moyen, difficile, expert), ou **bot contre bot**
-  pour regarder jouer le bot le plus fort, avec pause, coup par coup et retour en arrière.
+  pour regarder jouer le bot le plus fort : pause, coup par coup, et navigation dans les coups déjà joués
+  (◀ ▶ ou flèches du clavier) avec l'analyse de chacun, pendant ou après la partie.
 - **Apprendre du bot** : le panneau *Analyse* explique chaque coup du bot (chances de gain estimées, course des
   Sentinelles, captures, pièces mises à l'abri ou laissées en prise, menaces créées), montre la suite qu'il prévoit
   (traçable sur le plateau), les coups qu'il a écartés et ce qu'ils auraient coûté, et la courbe d'évaluation de la partie.
@@ -51,7 +52,7 @@ Les règles complètes et officielles sont sur [traversalgame.com/rules](https:/
   (meilleur coup, excellent, bon, imprécision, erreur, gaffe) en le comparant au meilleur coup du moteur.
   Le bilan donne une précision par joueur et la courbe des chances. Un clic sur un coup ramène le plateau à
   cette position, trace le coup joué et le meilleur coup, et explique la différence.
-  Le bot est un moteur écrit en Rust et compilé en WebAssembly (`engine/`), qui tourne dans un Web Worker :
+- **Un bot rapide** : c'est un moteur écrit en Rust et compilé en WebAssembly (`engine/`), qui tourne dans un Web Worker :
   negamax alpha-bêta avec table de transpositions, ~1 million de positions/s dans le navigateur,
   une dizaine de coups d'avance en niveau difficile.
 - **Plateaux générés** avec 6 modes de terrain (aléatoire, montagnes, vallées, hautes terres, bois, désert)
@@ -108,6 +109,7 @@ python3 analysis/analyze.py parties.jsonl                                       
 - **Clic** sur une de vos pièces pour la sélectionner, puis sur une case en surbrillance pour jouer.
 - **Glisser** pour tourner la caméra, **molette** pour zoomer.
 - **Cmd/Ctrl + Z** pour annuler, **Échap** pour désélectionner.
+- En bot contre bot, **← →** pour revoir les coups déjà joués.
 
 ## Structure
 

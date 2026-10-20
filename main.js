@@ -1147,6 +1147,9 @@ const cfg = { mode: 'bot', side: 0, level: 'medium', terrain: 'random' };
 const isHuman = t => cfg.mode === 'pvp' || (cfg.mode === 'bot' && t === cfg.side);
 // bot contre bot : lecture automatique, pause, coup par coup
 let paused = false, stepOnce = false, botThinking = false, hintPending = false;
+// revue des coups déjà joués (bot contre bot) : viewPly = position affichée (null = en direct)
+let viewPly = null, liveState = null, animating = false;
+const analyses = new Map(); // analyse de chaque coup du bot, par ply
 // panneau d'analyse : explication du dernier coup du bot (ou du conseil demandé) et courbe d'évaluation
 let coachOn = false, coachData = null, coachLabel = '', evalHistory = [], planShown = false;
 // coups joués (état avant + coup), en parallèle de history, pour l'analyse de fin de partie
@@ -1176,6 +1179,9 @@ function newMatch() {
   coachData = null;
   paused = false;
   stepOnce = false;
+  viewPly = null;
+  liveState = null;
+  analyses.clear();
   loadWorld();
   clearSelection();
   clearPlan();
@@ -1209,7 +1215,7 @@ try {
 } catch { worker = null; }
 
 // demande un coup au bot ; avec analyze, la réponse contient aussi info (évaluation, variante, alternatives)
-function askBot(s, level = cfg.level, analyze = coachOn) {
+function askBot(s, level = cfg.level, analyze = coachOn || cfg.mode === 'bvb') {
   return new Promise(res => {
     const fallback = () => setTimeout(() => res({ move: chooseMove(s, level === 'expert' ? 'hard' : level) }), 20);
     if (!worker) return fallback();
@@ -1234,7 +1240,7 @@ async function nextTurn() {
   if (cfg.mode === 'bvb' && paused && !stepOnce) {
     busy = false;
     updateControls();
-    setStatus(`En pause — à ${G.PLAYER_NAMES[state.turn]} de jouer · ▶ pour reprendre`, state.turn);
+    setStatus(`En pause — à ${G.PLAYER_NAMES[state.turn]} de jouer · ⏵ pour reprendre, ◀ pour revoir`, state.turn);
     return;
   }
   stepOnce = false;
@@ -1251,6 +1257,7 @@ async function nextTurn() {
     evalHistory = evalHistory.filter(h => h.ply < before.ply);
     coachData = explain(before, move, info);
     coachLabel = 'Coup du bot';
+    analyses.set(before.ply, coachData);
     evalHistory.push({ ply: before.ply, pRed: coachData.verdict.pRed });
     renderCoach();
   }
@@ -1271,7 +1278,10 @@ async function performMove(m) {
   movesLog.push({ before, move: m, human: isHuman(before.turn) });
   state = G.applyMove(before, m);
   setStatus(describeMove(before, m), before.turn);
+  animating = true;
+  updateControls();
   await animateMove(m, before);
+  animating = false;
   if (token !== gameToken) return;
   syncPieces(state);
   nextTurn();
@@ -1285,25 +1295,7 @@ function describeMove(s, m) {
 }
 
 function undo() {
-  if (!history.length || reviewing) return;
-  if (cfg.mode === 'bvb') {
-    // un coup en arrière, et pause pour observer la position (pas pendant une animation)
-    if (busy && !botThinking) return;
-    gameToken++;
-    botThinking = false;
-    paused = true;
-    state = history.pop();
-    movesLog.length = history.length;
-    evalHistory = evalHistory.filter(h => h.ply < state.ply);
-    coachData = null;
-    clearPlan();
-    renderCoach();
-    clearSelection();
-    syncPieces(state);
-    nextTurn();
-    return;
-  }
-  if (busy) return;
+  if (!history.length || reviewing || cfg.mode === 'bvb' || busy) return;
   gameToken++;
   do { state = history.pop(); } while (history.length && !isHuman(state.turn));
   if (!isHuman(state.turn)) { history.push(state); state = history.pop(); }
@@ -1315,27 +1307,87 @@ function undo() {
 }
 
 // ---------------------------------------------------------------- contrôles bot contre bot et conseil
+const viewIndex = () => viewPly ?? history.length;
+// navigation possible : bot contre bot, hors analyse de partie et hors animation d'un coup
+const canNavigate = () => cfg.mode === 'bvb' && !reviewing && !animating && !!state;
+
 function updateControls() {
-  const bvb = cfg.mode === 'bvb';
-  $('btnPlay').classList.toggle('hidden', !bvb);
-  $('btnStep').classList.toggle('hidden', !bvb);
+  const bvb = cfg.mode === 'bvb', k = viewIndex(), n = history.length, nav = canNavigate();
+  for (const id of ['btnFirst', 'btnPrev', 'btnPlay', 'btnNext', 'btnLast']) $(id).classList.toggle('hidden', !bvb);
+  $('btnUndo').classList.toggle('hidden', bvb);
   $('btnHint').classList.toggle('hidden', bvb);
-  $('btnPlay').innerHTML = paused ? '▶<span> Lecture</span>' : '⏸<span> Pause</span>';
-  $('btnPlay').title = paused ? 'Reprendre la partie' : 'Mettre en pause après ce coup';
-  $('btnStep').disabled = !paused || botThinking || !state || state.over;
+  const live = viewPly === null ? state : liveState;
+  const showPlay = paused || viewPly !== null;
+  $('btnPlay').innerHTML = showPlay ? '⏵<span> Lecture</span>' : '⏸<span> Pause</span>';
+  $('btnPlay').title = showPlay ? 'Revenir au présent et reprendre la partie' : 'Mettre en pause après ce coup';
+  $('btnPlay').disabled = !live || live.over;
+  $('btnFirst').disabled = $('btnPrev').disabled = !nav || k === 0;
+  $('btnNext').disabled = viewPly !== null ? !nav : !paused || botThinking || busy || !state || state.over;
+  $('btnNext').title = viewPly !== null ? 'Coup suivant (déjà joué)' : 'Faire jouer un coup au bot';
+  $('btnLast').disabled = viewPly === null;
   $('btnHint').disabled = !state || state.over || !isHuman(state.turn) || busy || hintPending || reviewing;
   if (state) $('btnUndo').disabled = !history.length;
 }
 
-$('btnPlay').onclick = () => {
-  paused = !paused;
+// affiche la position après k coups (k = nombre de coups joués : retour au présent)
+function goTo(k) {
+  if (!canNavigate()) return;
+  const n = history.length;
+  k = Math.max(0, Math.min(n, k));
+  if (viewPly === null) {
+    if (k === n) return;
+    // on quitte le direct : pause, et le coup en cours de calcul ou d'affichage est abandonné (il sera recalculé)
+    liveState = state;
+    gameToken++;
+    botThinking = false;
+    busy = false;
+    paused = true;
+  }
+  if (k === n) { viewPly = null; state = liveState; } else { viewPly = k; state = history[k]; }
+  showViewed();
+}
+
+function showViewed() {
+  const k = viewIndex(), n = history.length;
+  clearSelection();
+  syncPieces(state);
+  updateHUD();
+  clearPlan();
+  const last = k > 0 ? movesLog[k - 1] : null;
+  if (last) showPlan([{ move: last.move, side: last.before.turn, color: 0xffd36b }]);
+  coachData = last ? analyses.get(last.before.ply) || null : null;
+  coachLabel = viewPly === null ? 'Dernier coup' : `Coup ${k} sur ${n}`;
+  renderCoach();
+  if (viewPly !== null) setStatus(`Revue — position après le coup ${k} sur ${n} · ◀ ▶ pour naviguer`, state.turn);
+  else if (state.over) setStatus(`Partie terminée — ${state.reason}`, state.winner === 1 ? 1 : 0);
+  else setStatus(`En pause — à ${G.PLAYER_NAMES[state.turn]} de jouer · ⏵ pour reprendre`, state.turn);
   updateControls();
-  if (!paused && !botThinking && !busy && state && !state.over) nextTurn();
-};
-$('btnStep').onclick = () => {
+}
+
+$('btnFirst').onclick = () => goTo(0);
+$('btnPrev').onclick = () => goTo(viewIndex() - 1);
+$('btnLast').onclick = () => goTo(history.length);
+$('btnNext').onclick = () => {
+  if (viewPly !== null) return goTo(viewPly + 1);
+  // au présent et en pause : le bot joue un coup
   if (!paused || botThinking || busy || !state || state.over) return;
   stepOnce = true;
   nextTurn();
+};
+$('btnPlay').onclick = () => {
+  if (viewPly !== null) {
+    if (!canNavigate()) return;
+    viewPly = null;
+    state = liveState;
+    showViewed();
+    if (state.over) return;
+    paused = false;
+    updateControls();
+    return void nextTurn();
+  }
+  paused = !paused;
+  updateControls();
+  if (!paused && !botThinking && !busy && state && !state.over) nextTurn();
 };
 
 async function hint() {
@@ -1580,7 +1632,7 @@ function toast(msg) {
 }
 
 function showGameOver() {
-  if (reviewing) return;
+  if (reviewing || viewPly !== null) return;
   const w = state.winner;
   let title;
   if (w === 2) title = 'Match nul';
@@ -1728,6 +1780,10 @@ $('btnOverMenu').onclick = () => { $('over').classList.add('hidden'); $('hud').c
 $('btnOverBoard').onclick = () => $('over').classList.add('hidden');
 addEventListener('keydown', e => {
   if (e.key === 'Escape') { clearSelection(); $('rules').classList.add('hidden'); }
+  if (cfg.mode === 'bvb' && !$('hud').classList.contains('hidden') && $('menu').classList.contains('hidden')) {
+    if (e.key === 'ArrowLeft') goTo(viewIndex() - 1);
+    if (e.key === 'ArrowRight') $('btnNext').click();
+  }
   if ((e.metaKey || e.ctrlKey) && e.key === 'z') undo();
 });
 
