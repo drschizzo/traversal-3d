@@ -40,7 +40,9 @@ Les règles complètes et officielles sont sur [traversalgame.com/rules](https:/
 ## Ce que propose cette version
 
 - **Deux modes** : 2 joueurs en local, ou contre un bot (facile, moyen, difficile).
-  Le bot cherche plusieurs coups à l'avance (negamax alpha-bêta) dans un Web Worker.
+  Le bot est un moteur écrit en Rust et compilé en WebAssembly (`engine/`), qui tourne dans un Web Worker :
+  negamax alpha-bêta avec table de transpositions, ~1 million de positions/s dans le navigateur,
+  une dizaine de coups d'avance en niveau difficile.
 - **Plateaux générés** avec 6 modes de terrain (aléatoire, montagnes, vallées, hautes terres, bois, désert)
   et 2³² graines, soit plus de 25 milliards de mondes possibles. Chaque partie affiche son numéro de monde.
 - **Interface d'aide** : cases accessibles, chemin et coût au survol, détail du combat attaque contre défense,
@@ -66,6 +68,24 @@ python3 serve.py        # puis ouvrir http://localhost:8765
 `serve.py` est un petit serveur local qui désactive le cache du navigateur, pratique pendant le développement.
 N'importe quel serveur statique convient aussi, par exemple `python3 -m http.server`.
 
+### Recompiler le bot
+
+Le fichier `engine/traversal.wasm` est fourni ; il ne faut le recompiler qu'après avoir modifié le moteur Rust :
+
+```bash
+rustup target add wasm32-unknown-unknown   # une seule fois
+engine/build.sh
+```
+
+Le même crate fournit un banc d'essai natif multi-thread (`engine/src/bin/selfplay.rs`) :
+
+```bash
+cd engine && cargo build --release
+./target/release/selfplay match games=400 a.nodes=100000 b.nodes=100000 b.legacy=1   # comparer deux réglages
+./target/release/selfplay gen games=1000 nodes=100000 out=parties.jsonl            # parties pour les statistiques
+python3 analysis/analyze.py parties.jsonl                                          # rapport statistique
+```
+
 ## Commandes
 
 - **Clic** sur une de vos pièces pour la sélectionner, puis sur une case en surbrillance pour jouer.
@@ -79,7 +99,9 @@ N'importe quel serveur statique convient aussi, par exemple `python3 -m http.ser
 | `index.html` | Interface (HUD, menus, styles) |
 | `main.js` | Rendu Three.js : plateau, pièces, décor, effets, post-traitement, interactions |
 | `game.js` | Moteur de règles (pur, sans DOM) et générateur de terrain |
-| `ai.js`, `ai-worker.js` | Bot (recherche negamax alpha-bêta avec approfondissement itératif) |
+| `ai-worker.js` | Web Worker du bot : charge `engine/traversal.wasm` |
+| `engine/` | Moteur du bot en Rust (règles, recherche, évaluation), banc d'essai et analyses statistiques |
+| `ai.js` | Ancien bot en JavaScript, utilisé en secours si le WebAssembly ne se charge pas |
 | `themes.js` | Définition des thèmes (palettes, matières, effets), documentée en tête de fichier |
 | `serve.py` | Serveur de développement sans cache |
 
