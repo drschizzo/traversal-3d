@@ -47,7 +47,7 @@ Les règles complètes et officielles sont sur [traversalgame.com/rules](https:/
 - **Apprendre du bot** : le panneau *Analyse* explique chaque coup du bot (chances de gain estimées, course des
   Sentinelles, captures, pièces mises à l'abri ou laissées en prise, menaces créées), montre la suite qu'il prévoit
   (traçable sur le plateau), les coups qu'il a écartés et ce qu'ils auraient coûté, et la courbe d'évaluation de la partie.
-  Sur ton tour, *Conseil* montre ce que le bot jouerait à ta place, et pourquoi.
+  Au tour d'un joueur humain, *Conseil* montre le coup que le bot jouerait dans la position, et pourquoi.
 - **Analyse de partie** : en fin de partie (contre le bot ou à deux), chaque coup humain est noté
   (meilleur coup, excellent, bon, imprécision, erreur, gaffe) en le comparant au meilleur coup du moteur.
   Le bilan donne une précision par joueur et la courbe des chances. Un clic sur un coup ramène le plateau à

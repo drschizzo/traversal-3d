@@ -1166,7 +1166,8 @@ function loadWorld() {
   dropPieces();
   const label = `Monde n° ${worldSeed.toLocaleString('fr-FR')} · ${G.TERRAIN_MODES.find(m => m[0] === cfg.terrain)[1]}`;
   $('world').textContent = label;
-  $('menuWorld').textContent = label;
+  $('menuWorld').textContent = `Monde n° ${worldSeed.toLocaleString('fr-FR')}`;
+  $('menuTerrain').textContent = G.TERRAIN_MODES.find(m => m[0] === cfg.terrain)[1];
 }
 
 const LEVEL_NAMES = { easy: 'Facile', medium: 'Moyen', hard: 'Difficile', expert: 'Expert' };
@@ -1186,8 +1187,8 @@ function newMatch() {
   clearSelection();
   clearPlan();
   const bot = `Bot ${LEVEL_NAMES[cfg.level]}`;
-  $('name0').textContent = cfg.mode === 'bot' ? (cfg.side === 0 ? 'Toi · Rouge' : `${bot} · Rouge`) : cfg.mode === 'bvb' ? bot : 'Rouge';
-  $('name1').textContent = cfg.mode === 'bot' ? (cfg.side === 1 ? 'Toi · Bleu' : `${bot} · Bleu`) : cfg.mode === 'bvb' ? bot : 'Bleu';
+  $('name0').textContent = cfg.mode === 'bot' ? (cfg.side === 0 ? 'Joueur · Rouge' : `${bot} · Rouge`) : cfg.mode === 'bvb' ? bot : 'Rouge';
+  $('name1').textContent = cfg.mode === 'bot' ? (cfg.side === 1 ? 'Joueur · Bleu' : `${bot} · Bleu`) : cfg.mode === 'bvb' ? bot : 'Bleu';
   setCoach(cfg.mode === 'bvb');
   updateControls();
 }
@@ -1195,6 +1196,7 @@ function newMatch() {
 function startGame() {
   newMatch();
   $('menu').classList.add('hidden');
+  updateMenuShift();
   $('hud').classList.remove('hidden');
   layoutHud();
   controls.autoRotate = false;
@@ -1235,7 +1237,7 @@ async function nextTurn() {
     busy = false;
     updateControls();
     if (cfg.mode === 'pvp' && autoRotateView && viewSide !== state.turn) { viewSide = state.turn; turnCameraTo(viewSide); }
-    setStatus(`À ${state.turn === 0 ? 'Rouge' : 'Bleu'} de jouer — choisis une pièce`, state.turn);
+    setStatus(`À ${state.turn === 0 ? 'Rouge' : 'Bleu'} de jouer — choisir une pièce`, state.turn);
     return;
   }
   if (cfg.mode === 'bvb' && paused && !stepOnce) {
@@ -1427,7 +1429,7 @@ function renderCoach() {
   if (!coachOn) return;
   if (!coachData) {
     el.innerHTML = `<div class="coach-head"><span class="tag">Analyse</span></div>
-      <p class="muted">${cfg.mode === 'bvb' ? 'L’explication de chaque coup du bot s’affichera ici.' : 'Ici s’affiche le raisonnement du bot après chacun de ses coups. Sur ton tour, « Conseil » montre ce qu’il jouerait à ta place.'}</p>`;
+      <p class="muted">${cfg.mode === 'bvb' ? 'L’explication de chaque coup du bot s’affichera ici.' : 'Ici s’affiche le raisonnement du bot après chacun de ses coups. Au tour du joueur, « Conseil » montre le coup que le bot jouerait dans la position.'}</p>`;
     return;
   }
   el.innerHTML = renderAnalysis(coachData, { label: coachLabel, history: evalHistory });
@@ -1671,13 +1673,24 @@ function showGameOver() {
   const w = state.winner;
   let title;
   if (w === 2) title = 'Match nul';
-  else if (cfg.mode === 'bot') title = w === cfg.side ? 'Victoire !' : 'Défaite';
-  else title = `Victoire de ${G.PLAYER_NAMES[w]}`;
+  else if (cfg.mode === 'bot') title = w === cfg.side ? 'Victoire' : 'Défaite';
+  else title = `${G.PLAYER_NAMES[w]} l’emporte`;
   $('overTitle').textContent = title;
-  $('overTitle').style.color = w === 2 ? '#fff' : TEAM[w].css;
-  $('overS0').textContent = state.score[0];
-  $('overS1').textContent = state.score[1];
+  // couleur d'ambiance : le gagnant (or pour un nul, gris pour une défaite contre le bot)
+  const lostVsBot = cfg.mode === 'bot' && w !== 2 && w !== cfg.side;
+  $('overCard').style.setProperty('--win', w === 2 ? '#f2c46d' : lostVsBot ? '#9aa1b2' : TEAM[w].css);
   $('overReason').textContent = state.reason + '.';
+  const glyphs = (o, st) => state.pieces.filter(p => p.o === o && p.st === st).map(p => G.TYPE_GLYPHS[p.t]).join('');
+  for (let o = 0; o < 2; o++) {
+    $('overS' + o).textContent = state.score[o];
+    $('overName' + o).textContent = $('name' + o).textContent;
+    const arrived = glyphs(o, G.SCORED), lost = glyphs(o, G.CAPTURED);
+    $('overLine' + o).innerHTML = [arrived && `Arrivée <b>${arrived}</b>`, lost ? `Pertes <b>${lost}</b>` : 'Aucune perte'].filter(Boolean).join(' · ');
+    $('overTeam' + o).classList.toggle('win', w === o);
+    $('overTeam' + o).classList.toggle('lose', w !== 2 && w !== o);
+  }
+  const caps = movesLog.filter(x => x.move.kind === 'attack').length;
+  $('overStats').textContent = `${state.ply} coups · ${caps} capture${caps > 1 ? 's' : ''} · ${$('world').textContent}`;
   $('btnReview').classList.toggle('hidden', !movesLog.some(x => x.human));
   $('over').classList.remove('hidden');
   setStatus(title, w === 2 ? 0 : w);
@@ -1712,7 +1725,7 @@ async function startReview() {
 
 function renderReview() {
   const done = reviewItems.filter(Boolean).length, total = reviewItems.length;
-  const names = cfg.mode === 'bot' ? ['Rouge', 'Bleu'].map((n, o) => (o === cfg.side ? `Toi (${n})` : `Bot (${n})`)) : ['Rouge', 'Bleu'];
+  const names = cfg.mode === 'bot' ? ['Rouge', 'Bleu'].map((n, o) => (o === cfg.side ? `Joueur (${n})` : `Bot (${n})`)) : ['Rouge', 'Bleu'];
   const sides = cfg.mode === 'bot' ? [cfg.side] : [0, 1];
   const r = reviewSel >= 0 ? reviewItems[reviewSel] : null;
   $('review').innerHTML = `
@@ -1720,7 +1733,7 @@ function renderReview() {
     ${reviewError ? '<p class="muted">Analyse indisponible : le moteur du bot n’a pas pu être chargé.</p>' : done < total ? `<div class="rv-progress"><i style="width:${(done / total) * 100}%"></i><span>Analyse des coups ${done} / ${total}…</span></div>` : ''}
     ${renderSummary(reviewItems, sides, names)}
     ${renderGraph(reviewItems, finalState.ply)}
-    ${r ? renderDetail(r) : '<p class="muted">Clique sur un coup pour revoir la position, le coup joué <span class="key played"></span> et le meilleur coup <span class="key best"></span>.</p>'}
+    ${r ? renderDetail(r) : '<p class="muted">Un clic sur un coup affiche la position, le coup joué <span class="key played"></span> et le meilleur coup <span class="key best"></span>.</p>'}
     ${renderList(reviewItems, reviewSel)}`;
   $('rvClose').onclick = () => closeReview(true);
   $('review').querySelectorAll('.rv-list li[data-i]').forEach(li => { li.onclick = () => selectReview(+li.dataset.i); });
@@ -1766,7 +1779,7 @@ $('themeSeg').innerHTML = THEMES.map(t => {
   const core = `linear-gradient(135deg, ${t.terrain.top[1]}, ${t.terrain.top[4]} 55%, ${t.terrain.top[7]})`;
   return `<button data-v="${t.id}" title="${t.name}" aria-label="Thème ${t.name}" class="${t.id === theme.id ? 'sel' : ''}" style="background:${ring}"><i style="background:${core}"></i></button>`;
 }).join('');
-const showThemeName = id => { $('themeName').textContent = '· ' + (THEMES.find(t => t.id === id) || theme).name; };
+const showThemeName = id => { $('themeName').textContent = 'Thème ' + (THEMES.find(t => t.id === id) || theme).name; };
 showThemeName(theme.id);
 $('themeSeg').querySelectorAll('button').forEach(b => {
   b.addEventListener('mouseenter', () => showThemeName(b.dataset.v));
@@ -1796,10 +1809,31 @@ function previewTerrain() {
 function openMenu() {
   $('btnResume').classList.toggle('hidden', !state || state.over || $('hud').classList.contains('hidden'));
   $('menu').classList.remove('hidden');
+  updateMenuShift();
+}
+
+// Menu ouvert sur grand écran : la vue 3D glisse vers la droite pour que le monde reste visible à côté du panneau.
+let viewShift = 0, shiftTween = 0;
+function applyViewShift(px) {
+  viewShift = px;
+  if (Math.abs(px) < 0.5) camera.clearViewOffset();
+  else camera.setViewOffset(innerWidth, innerHeight, -px, 0, innerWidth, innerHeight);
+}
+const menuShiftTarget = () => (innerWidth >= 900 && !$('menu').classList.contains('hidden') ? Math.round(($('menuPanel').getBoundingClientRect().right) / 2) : 0);
+function updateMenuShift(animated = true) {
+  const from = viewShift, to = menuShiftTarget(), id = ++shiftTween;
+  if (!animated || from === to) return applyViewShift(to);
+  tween(0.8, k => { if (id === shiftTween) applyViewShift(from + (to - from) * easeIO(k)); });
 }
 
 $('btnStart').onclick = startGame;
-$('btnResume').onclick = () => $('menu').classList.add('hidden');
+$('btnCustomize').onclick = () => {
+  const open = $('worldCard').classList.toggle('open');
+  $('btnCustomize').setAttribute('aria-expanded', open);
+  $('btnCustomize').textContent = open ? 'Fermer' : 'Personnaliser';
+};
+$('btnReroll').onclick = previewTerrain;
+$('btnResume').onclick = () => { $('menu').classList.add('hidden'); updateMenuShift(); };
 $('btnMenu').onclick = openMenu;
 $('btnMenuRules').onclick = $('btnRules').onclick = () => $('rules').classList.remove('hidden');
 $('btnCloseRules').onclick = () => $('rules').classList.add('hidden');
@@ -1831,12 +1865,14 @@ addEventListener('resize', () => {
   sizeFieldRT();
   fitCamera();
   layoutHud();
+  updateMenuShift(false);
 });
 
 // ================================================================ boucle
 controls.autoRotate = true;
 controls.autoRotateSpeed = 0.5;
 previewTerrain();
+updateMenuShift(false);
 
 const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {

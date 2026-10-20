@@ -77,10 +77,83 @@
   @keyframes floatUp { from { opacity: 0; transform: translate(-50%, 0) scale(.6); } 15% { opacity: 1; transform: translate(-50%, -10px) scale(1.15); } to { opacity: 0; transform: translate(-50%, -90px) scale(1); } }
 
   #world { position: fixed; top: 84px; left: 50%; transform: translateX(-50%); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: rgba(242,196,109,.75); pointer-events: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
-  .worlds { text-align: center; margin: -8px 0 20px; display: grid; gap: 2px; }
-  .worlds b { font-family: var(--display); font-size: 24px; letter-spacing: .04em; color: var(--gold); font-variant-numeric: tabular-nums; }
-  .worlds span { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
-  .worlds em { font-style: normal; font-size: 12px; color: #d4d7df; margin-top: 6px; }
+  /* ---------- écran d'accueil : panneau latéral, le monde en préparation reste visible à droite */
+  .modal.menu { place-items: center start; padding: 24px; background: linear-gradient(90deg, rgba(8,10,16,.55), rgba(8,10,16,.12) 46%, rgba(8,10,16,0) 70%); }
+  .menu-panel { width: min(430px, calc(100vw - 24px)); min-width: 0; max-height: calc(100vh - 48px); overflow: auto; padding: 34px 30px 22px; border-radius: 22px; margin-left: clamp(0px, 3vw, 40px); }
+  .brand h1 { font-family: var(--display); font-weight: 700; font-size: 46px; letter-spacing: .2em; text-transform: uppercase; margin: 0; line-height: 1;
+    background: linear-gradient(180deg, #fff 30%, #f5d99a); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .brand p { margin: 12px 0 0; color: var(--muted); font-size: 14px; display: flex; align-items: center; gap: 10px; }
+  .brand p::before { content: ''; width: 26px; height: 2px; border-radius: 2px; background: var(--gold); flex: none; }
+  .block { margin-top: 26px; }
+  .label { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin-bottom: 9px; }
+  .seg.modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .seg.modes button { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 13px 12px 12px; border-radius: 14px; text-align: left; border: 1px solid var(--line); }
+  .seg.modes svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; margin-bottom: 6px; color: var(--muted); transition: color .15s; }
+  .seg.modes b { font-size: 13px; font-weight: 600; }
+  .seg.modes small { font-size: 11px; color: var(--muted); }
+  .seg.modes button.sel svg { color: var(--gold); }
+  .opts { display: grid; gap: 18px; }
+  .opts:not(:has(.opt:not(.hidden))) { display: none; }
+  .seg.colors button { display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .seg.colors i { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 3px rgba(255,255,255,.08); }
+  .seg.colors small { color: var(--muted); font-size: 11px; }
+  .seg.levels { flex-wrap: nowrap; }
+  .seg.levels button { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 9px 6px; font-size: 12.5px; }
+  .bars { display: flex; gap: 2px; align-items: flex-end; height: 10px; }
+  .bars i { width: 4px; border-radius: 1px; background: rgba(255,255,255,.18); }
+  .bars i:nth-child(1) { height: 4px; } .bars i:nth-child(2) { height: 6px; } .bars i:nth-child(3) { height: 8px; } .bars i:nth-child(4) { height: 10px; }
+  .bars i.on { background: currentColor; }
+  .world { background: rgba(255,255,255,.04); border: 1px solid var(--line); border-radius: 14px; padding: 13px 14px; }
+  .world .label { margin-bottom: 4px; }
+  .world-head { display: flex; align-items: center; gap: 8px; }
+  .world-info { flex: 1; min-width: 0; }
+  .world-name { font-family: var(--display); font-weight: 600; font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .world-sub { font-size: 12px; color: var(--gold); margin-top: 1px; }
+  .icon-btn { width: 32px; height: 32px; border-radius: 9px; border: 1px solid var(--line); background: var(--glass-2); font-size: 16px; flex: none; transition: transform .3s, background .15s; }
+  .icon-btn:hover { background: rgba(255,255,255,.12); transform: rotate(-90deg); }
+  .world-body { display: none; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .world.open .world-body { display: block; }
+  .world.open .world-body .label { margin: 12px 0 8px; }
+  .world.open .world-body .label:first-child { margin-top: 0; }
+  .seg.chips button { flex: 0 0 auto; padding: 6px 11px; font-size: 12px; border-radius: 99px; }
+  .primary.play { margin-top: 24px; padding: 15px; font-size: 16px; border-radius: 14px; display: flex; justify-content: center; gap: 10px; }
+  .primary.play span { transition: transform .2s; }
+  .primary.play:hover span { transform: translateX(4px); }
+  .menu-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; font-size: 11px; color: rgba(242,196,109,.6); letter-spacing: .04em; }
+  .link { background: none; border: 0; padding: 4px 0; color: var(--muted); font-size: 12.5px; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; transition: color .15s, text-decoration-color .15s; }
+  .link:hover { color: var(--text); text-decoration-color: currentColor; }
+  @media (max-width: 899px) {
+    .modal.menu { place-items: center; padding: 12px; background: rgba(8,10,16,.35); }
+    .menu-panel { margin: 0; padding: 26px 20px 18px; }
+    .brand h1 { font-size: 36px; }
+  }
+  @media (max-width: 420px) { .seg.modes small { display: none; } .seg.modes button { padding: 11px 9px; } .world-name { white-space: normal; } }
+
+  /* ---------- fin de partie */
+  #over { background: radial-gradient(circle at 50% 40%, rgba(8,10,16,.2), rgba(8,10,16,.6)); }
+  .over-card { --win: #f2c46d; width: min(460px, 100%); padding: 30px 30px 20px; text-align: center; border-radius: 22px; position: relative; overflow: hidden;
+    animation: overIn .5s cubic-bezier(.2,.9,.3,1.2); }
+  .over-card::before { content: ''; position: absolute; inset: 0 0 auto; height: 160px; background: radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--win) 32%, transparent), transparent 70%); pointer-events: none; }
+  .over-card::after { content: ''; position: absolute; inset: 0 0 auto; height: 2px; background: linear-gradient(90deg, transparent, var(--win), transparent); }
+  @keyframes overIn { from { opacity: 0; transform: translateY(14px) scale(.96); } }
+  .over-kicker { font-size: 10.5px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); position: relative; }
+  #overTitle { font-family: var(--display); font-weight: 700; font-size: 44px; margin: 6px 0 4px; letter-spacing: .02em; color: var(--win); text-shadow: 0 0 30px color-mix(in srgb, var(--win) 45%, transparent); position: relative; }
+  #overReason { margin: 0; color: #cdd1da; font-size: 13.5px; position: relative; }
+  .over-score { display: grid; grid-template-columns: 1fr auto 1fr; align-items: stretch; gap: 10px; margin: 22px 0 14px; }
+  .over-score .vs { align-self: center; color: var(--muted); font-family: var(--display); font-size: 22px; }
+  .team { background: rgba(255,255,255,.04); border: 1px solid var(--line); border-radius: 14px; padding: 12px 10px; transition: opacity .2s; }
+  .team.win { border-color: color-mix(in srgb, var(--win) 70%, transparent); background: color-mix(in srgb, var(--win) 10%, transparent); }
+  .team.lose { opacity: .72; }
+  .tname { display: flex; align-items: center; justify-content: center; gap: 7px; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+  .tname i { width: 9px; height: 9px; border-radius: 50%; }
+  .tscore { font-family: var(--display); font-weight: 700; font-size: 42px; line-height: 1.1; margin: 4px 0 2px; }
+  .tline { font-size: 11px; color: var(--muted); min-height: 15px; letter-spacing: .02em; }
+  .tline b { color: var(--text); font-weight: 500; letter-spacing: 2px; }
+  .over-stats { font-size: 11.5px; color: var(--muted); margin-bottom: 18px; }
+  .accent { width: 100%; margin-top: 8px; padding: 12px; border-radius: 12px; border: 1px solid rgba(242,196,109,.55); background: rgba(242,196,109,.08); color: #ffe3a8; font-weight: 600; font-size: 14px; transition: background .15s; }
+  .accent:hover { background: rgba(242,196,109,.16); }
+  .over-links { display: flex; justify-content: center; gap: 10px; align-items: center; margin-top: 12px; color: var(--muted); }
+
   /* ---------- panneau d'analyse */
   #coach { position: fixed; top: var(--panel-top, 72px); right: 16px; width: 330px; max-height: calc(100vh - var(--panel-top, 72px) - var(--panel-gap, 80px)); overflow: auto; padding: 14px 16px; font-size: 12.5px; line-height: 1.45; z-index: 5; }
   #coach h4 { font-family: var(--display); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 14px 0 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -153,15 +226,11 @@
   .panel { width: min(520px, 100%); max-height: calc(100vh - 32px); overflow: auto; padding: 28px; }
   .panel h1 { font-family: var(--display); font-weight: 700; font-size: 38px; margin: 0; letter-spacing: .16em; text-transform: uppercase; text-align: center; }
   .panel h2 { font-family: var(--display); font-weight: 700; margin: 0 0 4px; font-size: 26px; text-align: center; }
-  .tagline { text-align: center; color: var(--muted); margin: 4px 0 22px; font-size: 14px; }
-  .field { margin-bottom: 16px; }
-  .field label { display: block; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 7px; }
   .seg { display: flex; flex-wrap: wrap; gap: 6px; }
   .seg button { flex: 1 1 auto; padding: 9px 12px; background: var(--glass-2); border: 1px solid transparent; border-radius: 10px; font-size: 13px; font-weight: 500; transition: background .15s, border-color .15s; }
   .seg button:hover { background: rgba(255,255,255,.12); }
   .seg button.sel { background: rgba(242,196,109,.16); border-color: rgba(242,196,109,.7); color: #ffe3a8; }
-  /* sélecteur de thème : une rangée de pastilles, le nom s'affiche à côté du libellé */
-  .theme-name { margin-left: 6px; color: #ffe3a8; letter-spacing: .06em; text-transform: none; font-size: 12px; font-weight: 600; }
+  /* sélecteur de thème : une rangée de pastilles, le nom s'affiche dans la carte du monde */
   .seg.themes { flex-wrap: nowrap; justify-content: space-between; gap: 4px; }
   .seg.themes button { flex: 0 0 auto; width: 38px; height: 38px; padding: 0; border-radius: 50%; border: 0; position: relative;
     box-shadow: inset 0 0 0 1px rgba(255,255,255,.18), 0 3px 10px rgba(0,0,0,.35); transition: transform .15s, box-shadow .15s; }
@@ -172,12 +241,9 @@
   .primary { width: 100%; margin-top: 8px; padding: 13px; border: 0; border-radius: 12px; background: linear-gradient(180deg, #f5cf7f, #d9a547); color: #2a1d05; font-weight: 700; font-size: 15px; letter-spacing: .03em; box-shadow: 0 6px 20px rgba(217,165,71,.35); }
   .primary:hover { filter: brightness(1.06); }
   .ghost { width: 100%; margin-top: 8px; padding: 11px; border: 1px solid var(--line); border-radius: 12px; background: transparent; font-weight: 500; }
-  .row2 { display: flex; gap: 8px; }
   .rules { font-size: 13.5px; line-height: 1.6; color: #dadde4; }
   .rules h3 { font-family: var(--display); font-weight: 600; font-size: 15px; margin: 18px 0 4px; color: #fff; }
   .rules ul { margin: 4px 0; padding-left: 18px; }
-  .big-score { display: flex; justify-content: center; gap: 30px; margin: 18px 0 8px; font-family: var(--display); font-size: 40px; font-weight: 700; }
-  #overReason { text-align: center; color: var(--muted); font-size: 14px; }
 
   @media (max-width: 1280px) { .side { min-width: 120px; } }
   @media (max-width: 1000px) { #logo { display: none; } }
@@ -224,7 +290,7 @@
     <button id="btnPlay" class="hidden" title="Mettre en pause après ce coup">⏸<span> Pause</span></button>
     <button id="btnNext" class="hidden" title="Coup suivant (→)">▶</button>
     <button id="btnLast" class="hidden nav-ext" title="Retour au présent">⏭</button>
-    <button id="btnHint" title="Ce que le bot jouerait à ta place">💡<span> Conseil</span></button>
+    <button id="btnHint" title="Coup que le bot jouerait dans cette position">💡<span> Conseil</span></button>
     <button id="btnUndo" title="Annuler le dernier coup">↶<span> Annuler</span></button>
     <button id="btnCoach" title="Afficher le raisonnement du bot">◎<span> Analyse</span></button>
     <button id="btnView" title="Basculer la vue">⟲<span> Vue</span></button>
@@ -245,26 +311,49 @@
 </div>
 <div id="tip" class="glass hidden"></div>
 
-<div id="menu" class="modal">
-  <div class="panel glass">
-    <h1>Traversal</h1>
-    <p class="tagline">Traverse les montagnes. Franchis l’arrivée. Écrase l’adversaire.</p>
-    <div class="worlds"><b>25 769 803 776</b><span>mondes possibles · 6 modes × 2³² graines</span><em id="menuWorld"></em></div>
-    <div class="field"><label>Mode de jeu</label>
-      <div class="seg" data-key="mode"><button data-v="bot" class="sel">Contre le bot</button><button data-v="pvp">2 joueurs (local)</button><button data-v="bvb">Bot contre bot</button></div></div>
-    <div class="field bot-only"><label>Ta couleur</label>
-      <div class="seg" data-key="side"><button data-v="0" class="sel">Rouge (commence)</button><button data-v="1">Bleu</button></div></div>
-    <div class="field bots-only"><label>Difficulté</label>
-      <div class="seg" data-key="level"><button data-v="easy">Facile</button><button data-v="medium" class="sel">Moyen</button><button data-v="hard">Difficile</button><button data-v="expert" title="8 secondes de réflexion par coup">Expert</button></div></div>
-    <div class="field"><label>Terrain</label>
-      <div class="seg" data-key="terrain" id="terrainSeg"></div></div>
-    <div class="field"><label>Thème <span class="theme-name" id="themeName"></span></label>
-      <div class="seg themes" data-key="theme" id="themeSeg"></div></div>
-    <button class="primary" id="btnStart">Jouer</button>
-    <div class="row2">
-      <button class="ghost" id="btnMenuRules">Règles du jeu</button>
-      <button class="ghost hidden" id="btnResume">Reprendre la partie</button>
-    </div>
+<div id="menu" class="modal menu">
+  <div class="menu-panel glass" id="menuPanel">
+    <header class="brand">
+      <h1>Traversal</h1>
+      <p>Traverser les montagnes. Franchir l’arrivée.</p>
+    </header>
+
+    <section class="block">
+      <div class="label">Mode de jeu</div>
+      <div class="seg modes" data-key="mode">
+        <button data-v="bot" class="sel"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2.5"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></svg><b>Contre le bot</b><small>Face à l’IA</small></button>
+        <button data-v="pvp"><svg viewBox="0 0 24 24"><circle cx="8" cy="8" r="3"/><circle cx="16.5" cy="9" r="2.5"/><path d="M2.5 19c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5M13.8 14.6c.8-.4 1.7-.6 2.7-.6 2.4 0 4.3 1.6 4.9 4.5"/></svg><b>À deux</b><small>Sur le même écran</small></button>
+        <button data-v="bvb"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><b>Bot contre bot</b><small>Observer et apprendre</small></button>
+      </div>
+    </section>
+
+    <section class="block opts">
+      <div class="opt bot-only"><div class="label">Couleur du joueur</div>
+        <div class="seg colors" data-key="side"><button data-v="0" class="sel"><i style="background:var(--red)"></i>Rouge <small>commence</small></button><button data-v="1"><i style="background:var(--blue)"></i>Bleu</button></div></div>
+      <div class="opt bots-only"><div class="label">Niveau du bot</div>
+        <div class="seg levels" data-key="level"><button data-v="easy"><span class="bars"><i class="on"></i><i class=""></i><i class=""></i><i class=""></i></span>Facile</button><button data-v="medium" class="sel"><span class="bars"><i class="on"></i><i class="on"></i><i class=""></i><i class=""></i></span>Moyen</button><button data-v="hard"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i></span>Difficile</button><button data-v="expert" title="8 secondes de réflexion par coup"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span>Expert</button></div></div>
+    </section>
+
+    <section class="block world" id="worldCard">
+      <div class="world-head">
+        <div class="world-info"><div class="label">Monde</div><div class="world-name" id="menuWorld"></div><div class="world-sub"><span id="menuTerrain"></span> · <span id="themeName"></span></div></div>
+        <button class="icon-btn" id="btnReroll" title="Tirer un autre monde" aria-label="Tirer un autre monde">↻</button>
+        <button class="mini" id="btnCustomize" aria-expanded="false">Personnaliser</button>
+      </div>
+      <div class="world-body">
+        <div class="label">Terrain</div>
+        <div class="seg chips" data-key="terrain" id="terrainSeg"></div>
+        <div class="label">Thème</div>
+        <div class="seg themes" data-key="theme" id="themeSeg"></div>
+      </div>
+    </section>
+
+    <button class="primary play" id="btnStart">Jouer <span aria-hidden="true">→</span></button>
+    <button class="ghost hidden" id="btnResume">Reprendre la partie</button>
+    <footer class="menu-foot">
+      <button class="link" id="btnMenuRules">Règles du jeu</button>
+      <span>25 769 803 776 mondes possibles</span>
+    </footer>
   </div>
 </div>
 
@@ -288,22 +377,28 @@
     </ul>
     <h3>Limite</h3>
     <p>À 200 coups, le meilleur score gagne ; sans score, la pièce la plus proche de l’arrivée (puis la plus forte) l’emporte.</p>
-    <p style="color:var(--muted)">Astuce : survole une case colorée pour voir le chemin, et une cible rouge pour le détail du combat.</p>
+    <p style="color:var(--muted)">Astuce : le survol d’une case colorée affiche le chemin, celui d’une cible rouge le détail du combat.</p>
     <button class="primary" id="btnCloseRules">Compris</button>
   </div>
 </div>
 
 <div id="over" class="modal hidden">
-  <div class="panel glass">
+  <div class="over-card glass" id="overCard">
+    <div class="over-kicker">Partie terminée</div>
     <h2 id="overTitle">Victoire</h2>
-    <div class="big-score"><span style="color:var(--red)" id="overS0">0</span><span style="color:var(--muted)">–</span><span style="color:var(--blue)" id="overS1">0</span></div>
     <p id="overReason"></p>
+    <div class="over-score">
+      <div class="team" id="overTeam0"><div class="tname"><i style="background:var(--red)"></i><span id="overName0">Rouge</span></div><div class="tscore" id="overS0">0</div><div class="tline" id="overLine0"></div></div>
+      <div class="vs">–</div>
+      <div class="team" id="overTeam1"><div class="tname"><i style="background:var(--blue)"></i><span id="overName1">Bleu</span></div><div class="tscore" id="overS1">0</div><div class="tline" id="overLine1"></div></div>
+    </div>
+    <div class="over-stats" id="overStats"></div>
     <button class="primary" id="btnAgain">Rejouer</button>
-    <button class="ghost" id="btnReview">Analyser la partie</button>
-    <div class="row2"><button class="ghost" id="btnOverMenu">Menu</button><button class="ghost" id="btnOverBoard">Voir le plateau</button></div>
+    <button class="accent" id="btnReview"><span aria-hidden="true">✦</span> Analyser la partie</button>
+    <div class="over-links"><button class="link" id="btnOverBoard">Voir le plateau</button><span>·</span><button class="link" id="btnOverMenu">Menu</button></div>
   </div>
 </div>
 
-<script type="module" src="./main.js?v=49"></script>
+<script type="module" src="./main.js?v=54"></script>
 </body>
 </html>
