@@ -10,6 +10,8 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import * as G from './game.js';
 import { chooseMove } from './ai.js';
 import { THEMES } from './themes.js';
+import { explain, renderAnalysis } from './coach.js';
+import { reviewMove, renderSummary, renderGraph, renderList, renderDetail } from './review.js';
 
 const LEVEL = 0.3;
 const topY = h => (h + 1) * LEVEL;
@@ -1142,7 +1144,13 @@ function turnCameraTo(side, dur = 1.1) {
 let state = null, history = [], selected = -1, selMoves = [], busy = false, gameToken = 0;
 let showHeights = false, viewSide = 0, autoRotateView = true;
 const cfg = { mode: 'bot', side: 0, level: 'medium', terrain: 'random' };
-const isHuman = t => cfg.mode === 'pvp' || t === cfg.side;
+const isHuman = t => cfg.mode === 'pvp' || (cfg.mode === 'bot' && t === cfg.side);
+// bot contre bot : lecture automatique, pause, coup par coup
+let paused = false, stepOnce = false, botThinking = false, hintPending = false;
+// panneau d'analyse : explication du dernier coup du bot (ou du conseil demandé) et courbe d'évaluation
+let coachOn = false, coachData = null, coachLabel = '', evalHistory = [], planShown = false;
+// coups joués (état avant + coup), en parallèle de history, pour l'analyse de fin de partie
+let movesLog = [];
 
 let worldSeed = 0;
 function loadWorld() {
@@ -1158,13 +1166,24 @@ function loadWorld() {
   $('menuWorld').textContent = label;
 }
 
+const LEVEL_NAMES = { easy: 'Facile', medium: 'Moyen', hard: 'Difficile', expert: 'Expert' };
 function newMatch() {
   gameToken++;
   history = [];
+  movesLog = [];
+  closeReview(false);
+  evalHistory = [];
+  coachData = null;
+  paused = false;
+  stepOnce = false;
   loadWorld();
   clearSelection();
-  $('name0').textContent = cfg.mode === 'bot' ? (cfg.side === 0 ? 'Toi · Rouge' : 'Bot · Rouge') : 'Rouge';
-  $('name1').textContent = cfg.mode === 'bot' ? (cfg.side === 1 ? 'Toi · Bleu' : 'Bot · Bleu') : 'Bleu';
+  clearPlan();
+  const bot = `Bot ${LEVEL_NAMES[cfg.level]}`;
+  $('name0').textContent = cfg.mode === 'bot' ? (cfg.side === 0 ? 'Toi · Rouge' : `${bot} · Rouge`) : cfg.mode === 'bvb' ? bot : 'Rouge';
+  $('name1').textContent = cfg.mode === 'bot' ? (cfg.side === 1 ? 'Toi · Bleu' : `${bot} · Bleu`) : cfg.mode === 'bvb' ? bot : 'Bleu';
+  setCoach(cfg.mode === 'bvb');
+  updateControls();
 }
 
 function startGame() {
@@ -1180,37 +1199,64 @@ function startGame() {
   wait(1900).then(() => { if (token === gameToken) nextTurn(); });
 }
 
-let worker = null;
-try { worker = new Worker(new URL('./ai-worker.js', import.meta.url), { type: 'module' }); } catch { worker = null; }
+// ---------------------------------------------------------------- bot (Web Worker)
+let worker = null, reqId = 0;
+const pending = new Map();
+try {
+  worker = new Worker(new URL('./ai-worker.js', import.meta.url), { type: 'module' });
+  worker.onmessage = e => { const r = pending.get(e.data.token); pending.delete(e.data.token); r?.(e.data); };
+  worker.onerror = ev => { ev.preventDefault?.(); worker = null; for (const r of pending.values()) r({ move: null }); pending.clear(); };
+} catch { worker = null; }
 
-function askBot(s) {
-  const token = gameToken;
+// demande un coup au bot ; avec analyze, la réponse contient aussi info (évaluation, variante, alternatives)
+function askBot(s, level = cfg.level, analyze = coachOn) {
   return new Promise(res => {
-    const fallback = () => setTimeout(() => res({ move: chooseMove(s, cfg.level), token }), 20);
+    const fallback = () => setTimeout(() => res({ move: chooseMove(s, level === 'expert' ? 'hard' : level) }), 20);
     if (!worker) return fallback();
-    worker.onmessage = e => res(e.data);
-    worker.onerror = ev => { ev.preventDefault?.(); worker = null; fallback(); };
-    worker.postMessage({ state: s, level: cfg.level, token });
+    const id = ++reqId;
+    pending.set(id, d => (d.move || !worker ? res(d) : fallback()));
+    worker.postMessage({ state: s, level, token: id, analyze });
   });
 }
 
 async function nextTurn() {
   updateHUD();
+  updateControls();
   if (state.over) { busy = true; await wait(600); showGameOver(); return; }
   if (state.passed) toast(`${G.PLAYER_NAMES[1 - state.turn]} ne peut pas jouer : tour passé.`);
   if (isHuman(state.turn)) {
     busy = false;
+    updateControls();
     if (cfg.mode === 'pvp' && autoRotateView && viewSide !== state.turn) { viewSide = state.turn; turnCameraTo(viewSide); }
     setStatus(`À ${state.turn === 0 ? 'Rouge' : 'Bleu'} de jouer — choisis une pièce`, state.turn);
     return;
   }
+  if (cfg.mode === 'bvb' && paused && !stepOnce) {
+    busy = false;
+    updateControls();
+    setStatus(`En pause — à ${G.PLAYER_NAMES[state.turn]} de jouer · ▶ pour reprendre`, state.turn);
+    return;
+  }
+  stepOnce = false;
   busy = true;
-  setStatus('Le bot réfléchit…', state.turn, true);
+  botThinking = true;
+  updateControls();
+  setStatus(cfg.level === 'expert' ? 'Le bot réfléchit en profondeur…' : 'Le bot réfléchit…', state.turn, true);
   const t0 = performance.now();
-  const { move, token } = await askBot(state);
+  const token = gameToken, before = state;
+  const { move, info } = await askBot(state);
+  botThinking = false;
   if (token !== gameToken) return;
+  if (info && move) {
+    evalHistory = evalHistory.filter(h => h.ply < before.ply);
+    coachData = explain(before, move, info);
+    coachLabel = 'Coup du bot';
+    evalHistory.push({ ply: before.ply, pRed: coachData.verdict.pRed });
+    renderCoach();
+  }
   const elapsed = performance.now() - t0;
-  if (elapsed < 650) await wait(650 - elapsed);
+  const minDelay = cfg.mode === 'bvb' ? 1100 : 650; // laisser le temps de lire l'analyse
+  if (elapsed < minDelay) await wait(minDelay - elapsed);
   if (token !== gameToken || !move) return;
   await performMove(move);
 }
@@ -1219,8 +1265,10 @@ async function performMove(m) {
   busy = true;
   const token = gameToken;
   clearSelection();
+  clearPlan();
   const before = state;
   history.push(before);
+  movesLog.push({ before, move: m, human: isHuman(before.turn) });
   state = G.applyMove(before, m);
   setStatus(describeMove(before, m), before.turn);
   await animateMove(m, before);
@@ -1237,13 +1285,144 @@ function describeMove(s, m) {
 }
 
 function undo() {
-  if (busy || !history.length) return;
+  if (!history.length || reviewing) return;
+  if (cfg.mode === 'bvb') {
+    // un coup en arrière, et pause pour observer la position (pas pendant une animation)
+    if (busy && !botThinking) return;
+    gameToken++;
+    botThinking = false;
+    paused = true;
+    state = history.pop();
+    movesLog.length = history.length;
+    evalHistory = evalHistory.filter(h => h.ply < state.ply);
+    coachData = null;
+    clearPlan();
+    renderCoach();
+    clearSelection();
+    syncPieces(state);
+    nextTurn();
+    return;
+  }
+  if (busy) return;
   gameToken++;
   do { state = history.pop(); } while (history.length && !isHuman(state.turn));
   if (!isHuman(state.turn)) { history.push(state); state = history.pop(); }
+  movesLog.length = history.length;
+  evalHistory = evalHistory.filter(h => h.ply < state.ply);
   clearSelection();
   syncPieces(state);
   nextTurn();
+}
+
+// ---------------------------------------------------------------- contrôles bot contre bot et conseil
+function updateControls() {
+  const bvb = cfg.mode === 'bvb';
+  $('btnPlay').classList.toggle('hidden', !bvb);
+  $('btnStep').classList.toggle('hidden', !bvb);
+  $('btnHint').classList.toggle('hidden', bvb);
+  $('btnPlay').innerHTML = paused ? '▶<span> Lecture</span>' : '⏸<span> Pause</span>';
+  $('btnPlay').title = paused ? 'Reprendre la partie' : 'Mettre en pause après ce coup';
+  $('btnStep').disabled = !paused || botThinking || !state || state.over;
+  $('btnHint').disabled = !state || state.over || !isHuman(state.turn) || busy || hintPending || reviewing;
+  if (state) $('btnUndo').disabled = !history.length;
+}
+
+$('btnPlay').onclick = () => {
+  paused = !paused;
+  updateControls();
+  if (!paused && !botThinking && !busy && state && !state.over) nextTurn();
+};
+$('btnStep').onclick = () => {
+  if (!paused || botThinking || busy || !state || state.over) return;
+  stepOnce = true;
+  nextTurn();
+};
+
+async function hint() {
+  if (!state || state.over || !isHuman(state.turn) || busy || hintPending || reviewing) return;
+  hintPending = true;
+  updateControls();
+  setCoach(true);
+  $('coach').innerHTML = '<div class="coach-wait"><span class="spinner"></span> Le bot analyse la position…</div>';
+  const token = gameToken, before = state;
+  const { move, info } = await askBot(before, cfg.level === 'expert' ? 'expert' : 'hard', true);
+  hintPending = false;
+  updateControls();
+  if (token !== gameToken || state !== before) { renderCoach(); return; }
+  if (!move || !info) { $('coach').innerHTML = '<p class="muted">Analyse indisponible.</p>'; return; }
+  coachData = explain(before, move, info);
+  coachLabel = 'Conseil du bot';
+  showPlan(planItems());
+  renderCoach();
+}
+$('btnHint').onclick = hint;
+
+// ---------------------------------------------------------------- panneau d'analyse
+function setCoach(on) {
+  coachOn = on;
+  $('btnCoach').classList.toggle('on', on);
+  $('coach').classList.toggle('hidden', !on);
+  $('legend').classList.toggle('hidden', on);
+  if (!on) clearPlan();
+  renderCoach();
+}
+$('btnCoach').onclick = () => setCoach(!coachOn);
+
+function renderCoach() {
+  const el = $('coach');
+  if (!coachOn) return;
+  if (!coachData) {
+    el.innerHTML = `<div class="coach-head"><span class="tag">Analyse</span></div>
+      <p class="muted">${cfg.mode === 'bvb' ? 'L’explication de chaque coup du bot s’affichera ici.' : 'Ici s’affiche le raisonnement du bot après chacun de ses coups. Sur ton tour, « Conseil » montre ce qu’il jouerait à ta place.'}</p>`;
+    return;
+  }
+  el.innerHTML = renderAnalysis(coachData, { label: coachLabel, history: evalHistory });
+  const btn = $('coachPlanBtn');
+  if (btn) {
+    btn.classList.toggle('on', planShown);
+    btn.onclick = () => { if (planShown) clearPlan(); else showPlan(planItems()); btn.classList.toggle('on', planShown); };
+  }
+  // survol d'une ligne : le coup correspondant est tracé sur le plateau
+  el.querySelectorAll('[data-plan]').forEach(li => {
+    const m = coachData.plan[+li.dataset.plan].move;
+    li.onmouseenter = () => showPath(m);
+    li.onmouseleave = () => showPath(null);
+  });
+  el.querySelectorAll('[data-alt]').forEach(li => {
+    const m = coachData.alts[+li.dataset.alt].move;
+    li.onmouseenter = () => showPath(m);
+    li.onmouseleave = () => showPath(null);
+  });
+}
+
+// coups à tracer : pour un conseil, le coup suggéré puis la suite ; sinon la suite du coup joué
+const planItems = () => (coachLabel === 'Conseil du bot' ? [{ move: coachData.move, side: coachData.side }, ...coachData.plan.slice(0, 3)] : coachData.plan.slice(0, 4));
+
+// suite prévue tracée sur le plateau : un tube par coup, de plus en plus transparent
+const planGroup = new THREE.Group();
+scene.add(planGroup);
+function clearPlan() {
+  for (const o of planGroup.children) { o.geometry.dispose(); o.material.dispose(); }
+  planGroup.clear();
+  planShown = false;
+  $('coachPlanBtn')?.classList.remove('on');
+}
+function showPlan(items) {
+  clearPlan();
+  items.forEach(({ move: m, side, color }, i) => {
+    const pts = pathPoints(m);
+    if (pts.length < 2) return;
+    pts.forEach(p => { p.y += 0.04 * (i + 1); });
+    const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal', 0.3);
+    const mat = new THREE.MeshBasicMaterial({ color: color ?? TEAM[side].main, transparent: true, opacity: color ? 0.95 : Math.max(0.3, 0.95 - i * 0.18), depthWrite: false });
+    planGroup.add(new THREE.Mesh(new THREE.TubeGeometry(curve, pts.length * 12, 0.05, 8, false), mat));
+    const [x, z] = m.kind === 'exit' ? [pts[pts.length - 1].x, pts[pts.length - 1].z] : cellXZ(m.to);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.3, 24), new THREE.MeshBasicMaterial({ color: color ?? TEAM[side].main, transparent: true, opacity: mat.opacity, depthWrite: false, side: THREE.DoubleSide }));
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(x, (m.kind === 'exit' ? 0.1 : topY(state.h[m.to])) + 0.03, z);
+    planGroup.add(ring);
+  });
+  planShown = items.length > 0;
 }
 
 // ================================================================ sélection & interaction
@@ -1299,7 +1478,7 @@ canvas.addEventListener('pointerdown', e => { downAt = [e.clientX, e.clientY]; }
 canvas.addEventListener('pointerup', e => {
   if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 6) return;
   downAt = null;
-  if (!state || busy || state.over || !isHuman(state.turn)) return;
+  if (!state || busy || reviewing || state.over || !isHuman(state.turn)) return;
   const h = pick(e);
   if (h.move && selected >= 0) return void performMove(h.move);
   if (h.pi >= 0 && state.pieces[h.pi].o === state.turn) return void (h.pi === selected ? clearSelection() : select(h.pi));
@@ -1401,6 +1580,7 @@ function toast(msg) {
 }
 
 function showGameOver() {
+  if (reviewing) return;
   const w = state.winner;
   let title;
   if (w === 2) title = 'Match nul';
@@ -1411,9 +1591,83 @@ function showGameOver() {
   $('overS0').textContent = state.score[0];
   $('overS1').textContent = state.score[1];
   $('overReason').textContent = state.reason + '.';
+  $('btnReview').classList.toggle('hidden', !movesLog.some(x => x.human));
   $('over').classList.remove('hidden');
   setStatus(title, w === 2 ? 0 : w);
 }
+
+// ================================================================ analyse de fin de partie
+let reviewing = false, reviewToken = 0, reviewItems = [], reviewSel = -1, finalState = null, reviewError = false;
+
+async function startReview() {
+  if (reviewing) return;
+  const token = ++reviewToken;
+  reviewing = true;
+  finalState = state;
+  const humans = movesLog.filter(x => x.human);
+  reviewItems = humans.map(() => null);
+  reviewSel = -1;
+  reviewError = false;
+  $('over').classList.add('hidden');
+  setCoach(false);
+  $('legend').classList.add('hidden');
+  $('review').classList.remove('hidden');
+  renderReview();
+  const think = s => askBot(s, 'review', true);
+  for (let k = 0; k < humans.length; k++) {
+    const r = await reviewMove(think, humans[k].before, humans[k].move);
+    if (token !== reviewToken) return;
+    if (!r) { reviewError = true; renderReview(); return; } // moteur WebAssembly indisponible : pas d'analyse
+    reviewItems[k] = r;
+    renderReview();
+  }
+}
+
+function renderReview() {
+  const done = reviewItems.filter(Boolean).length, total = reviewItems.length;
+  const names = cfg.mode === 'bot' ? ['Rouge', 'Bleu'].map((n, o) => (o === cfg.side ? `Toi (${n})` : `Bot (${n})`)) : ['Rouge', 'Bleu'];
+  const sides = cfg.mode === 'bot' ? [cfg.side] : [0, 1];
+  const r = reviewSel >= 0 ? reviewItems[reviewSel] : null;
+  $('review').innerHTML = `
+    <div class="rv-head"><b>Analyse de la partie</b><button class="mini" id="rvClose">Fermer</button></div>
+    ${reviewError ? '<p class="muted">Analyse indisponible : le moteur du bot n’a pas pu être chargé.</p>' : done < total ? `<div class="rv-progress"><i style="width:${(done / total) * 100}%"></i><span>Analyse des coups ${done} / ${total}…</span></div>` : ''}
+    ${renderSummary(reviewItems, sides, names)}
+    ${renderGraph(reviewItems, finalState.ply)}
+    ${r ? renderDetail(r) : '<p class="muted">Clique sur un coup pour revoir la position, le coup joué <span class="key played"></span> et le meilleur coup <span class="key best"></span>.</p>'}
+    ${renderList(reviewItems, reviewSel)}`;
+  $('rvClose').onclick = () => closeReview(true);
+  $('review').querySelectorAll('.rv-list li[data-i]').forEach(li => { li.onclick = () => selectReview(+li.dataset.i); });
+  $('review').querySelectorAll('.rv-graph circle[data-ply]').forEach(c => {
+    c.onclick = () => selectReview(reviewItems.findIndex(x => x && x.ply === +c.dataset.ply));
+  });
+}
+
+function selectReview(i) {
+  const r = reviewItems[i];
+  if (!r) return;
+  reviewSel = i;
+  state = r.before;
+  syncPieces(state);
+  updateHUD();
+  clearPlan();
+  showPlan(r.isBest ? [{ move: r.move, side: r.side, color: 0x7fe39a }] : [{ move: r.best, side: r.side, color: 0x7fe39a }, { move: r.move, side: r.side, color: 0xf0955a }]);
+  setStatus(`Position avant le coup ${r.ply + 1} — à ${G.PLAYER_NAMES[r.side]} de jouer`, r.side);
+  updateControls();
+  renderReview();
+  $('review').querySelector('.rv-list li.sel')?.scrollIntoView({ block: 'nearest' });
+}
+
+function closeReview(showOver) {
+  if (!reviewing) return;
+  reviewToken++;
+  reviewing = false;
+  $('review').classList.add('hidden');
+  $('legend').classList.remove('hidden');
+  clearPlan();
+  if (finalState) { state = finalState; syncPieces(state); updateHUD(); updateControls(); }
+  if (showOver) showGameOver();
+}
+$('btnReview').onclick = startReview;
 
 // ================================================================ menus
 const terrainSeg = $('terrainSeg');
@@ -1438,7 +1692,10 @@ document.querySelectorAll('.seg').forEach(seg => {
     seg.querySelectorAll('button').forEach(x => x.classList.toggle('sel', x === b));
     const key = seg.dataset.key;
     cfg[key] = key === 'side' ? Number(b.dataset.v) : b.dataset.v;
-    if (key === 'mode') document.querySelectorAll('.bot-only').forEach(el => el.classList.toggle('hidden', cfg.mode !== 'bot'));
+    if (key === 'mode') {
+      document.querySelectorAll('.bot-only').forEach(el => el.classList.toggle('hidden', cfg.mode !== 'bot'));
+      document.querySelectorAll('.bots-only').forEach(el => el.classList.toggle('hidden', cfg.mode === 'pvp'));
+    }
     if (key === 'terrain') previewTerrain();
     if (key === 'theme') { applyTheme(b.dataset.v); showThemeName(theme.id); }
   });

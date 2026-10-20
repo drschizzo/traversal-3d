@@ -26,7 +26,7 @@
   .side { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 11px; min-width: 150px; transition: background .3s, box-shadow .3s; }
   .side.p1 { flex-direction: row-reverse; text-align: right; }
   .side .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
-  .side .name { font-weight: 600; font-size: 13px; }
+  .side .name { font-weight: 600; font-size: 13px; white-space: nowrap; }
   .side .sub { font-size: 11px; color: var(--muted); }
   .side .pts { font-family: var(--display); font-size: 28px; font-weight: 700; line-height: 1; margin-left: auto; }
   .side.p1 .pts { margin-left: 0; margin-right: auto; }
@@ -76,6 +76,71 @@
   .worlds b { font-family: var(--display); font-size: 24px; letter-spacing: .04em; color: var(--gold); font-variant-numeric: tabular-nums; }
   .worlds span { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
   .worlds em { font-style: normal; font-size: 12px; color: #d4d7df; margin-top: 6px; }
+  /* ---------- panneau d'analyse */
+  #coach { position: fixed; top: 72px; right: 16px; width: 330px; max-height: calc(100vh - 150px); overflow: auto; padding: 14px 16px; font-size: 12.5px; line-height: 1.45; z-index: 5; }
+  #coach h4 { font-family: var(--display); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 14px 0 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  #coach p { margin: 6px 0; }
+  #coach .muted { color: var(--muted); }
+  #coach .foot { font-size: 11px; margin-top: 12px; }
+  .coach-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .coach-head .tag { font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--gold); }
+  .coach-head .who { font-weight: 700; font-size: 12px; }
+  .coach-move { font-family: var(--display); font-weight: 600; font-size: 16px; margin-bottom: 10px; }
+  .coach-wait { display: flex; gap: 10px; align-items: center; color: var(--muted); }
+  .eval-bar { position: relative; height: 20px; border-radius: 6px; overflow: hidden; background: var(--blue); font-size: 10.5px; font-weight: 700; }
+  .eval-bar i { position: absolute; inset: 0 auto 0 0; background: var(--red); transition: width .5s; }
+  .eval-bar span { position: absolute; top: 3px; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.5); }
+  .eval-bar .l { left: 7px; } .eval-bar .r { right: 7px; }
+  .verdict { color: #dfe2e9; }
+  .spark { width: 100%; height: 46px; margin-top: 4px; background: var(--glass-2); border-radius: 6px; }
+  .spark polyline { fill: none; stroke: var(--gold); stroke-width: 1.8; vector-effect: non-scaling-stroke; }
+  .spark .mid { stroke: rgba(255,255,255,.2); stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+  .reasons { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .reasons li { display: flex; gap: 8px; }
+  .reasons .ic { flex: none; width: 18px; text-align: center; }
+  .plan { margin: 0; padding-left: 0; list-style: none; counter-reset: p; display: grid; gap: 3px; }
+  .plan li, .alts li { padding: 4px 6px; border-radius: 6px; cursor: default; }
+  .plan li:hover, .alts li:hover { background: var(--glass-2); }
+  .plan li i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; }
+  .alts { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+  .alts li { display: flex; justify-content: space-between; gap: 8px; }
+  .alts b { color: #f0a8a8; font-weight: 600; white-space: nowrap; }
+  .mini { background: var(--glass-2); border: 1px solid var(--line); border-radius: 7px; padding: 3px 8px; font-size: 10.5px; letter-spacing: .02em; text-transform: none; color: var(--text); font-family: Inter, system-ui, sans-serif; }
+  .mini.on { background: rgba(242,196,109,.18); color: var(--gold); border-color: rgba(242,196,109,.5); }
+  /* ---------- analyse de fin de partie */
+  #review { position: fixed; top: 72px; right: 16px; width: 370px; max-height: calc(100vh - 150px); overflow: auto; padding: 14px 16px; font-size: 12.5px; line-height: 1.45; z-index: 6; }
+  #review h4 { font-family: var(--display); font-size: 12.5px; margin: 12px 0 6px; display: flex; align-items: center; gap: 7px; }
+  #review p { margin: 6px 0; }
+  #review .muted { color: var(--muted); }
+  .rv-head { display: flex; justify-content: space-between; align-items: center; font-family: var(--display); font-size: 16px; margin-bottom: 10px; }
+  .rv-progress { position: relative; height: 18px; border-radius: 6px; background: var(--glass-2); overflow: hidden; margin-bottom: 10px; font-size: 10.5px; }
+  .rv-progress i { position: absolute; inset: 0 auto 0 0; background: rgba(242,196,109,.35); transition: width .3s; }
+  .rv-progress span { position: absolute; left: 8px; top: 2px; }
+  .rv-player { margin-bottom: 8px; }
+  .rv-name { display: flex; align-items: baseline; gap: 7px; font-weight: 600; }
+  .rv-name i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .rv-name b { margin-left: auto; font-family: var(--display); font-size: 20px; }
+  .rv-name span { font-size: 10.5px; color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .chip { font-size: 10.5px; padding: 2px 7px; border-radius: 99px; background: color-mix(in srgb, var(--c) 18%, transparent); color: var(--c); }
+  .rv-graph { width: 100%; height: 78px; margin: 6px 0 4px; }
+  .rv-graph .top { fill: rgba(224,72,79,.08); }
+  .rv-graph .mid { stroke: rgba(255,255,255,.25); stroke-dasharray: 3 3; }
+  .rv-graph polyline { fill: none; stroke: var(--gold); stroke-width: 1.6; }
+  .rv-graph circle { cursor: pointer; stroke: rgba(0,0,0,.4); }
+  .rv-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 2px; }
+  .rv-list li { display: flex; align-items: center; gap: 7px; padding: 4px 6px; border-radius: 6px; cursor: pointer; }
+  .rv-list li:hover { background: var(--glass-2); }
+  .rv-list li.sel { background: rgba(242,196,109,.16); }
+  .rv-list li.pending { color: var(--muted); cursor: default; }
+  .rv-list .n { width: 26px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .rv-list i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .rv-list .mv { flex: 1; }
+  .rv-list .gr { font-weight: 700; min-width: 20px; text-align: right; }
+  .rv-detail { background: var(--glass-2); border-radius: 10px; padding: 8px 10px; margin-top: 8px; }
+  .rv-grade { font-family: var(--display); font-weight: 700; font-size: 15px; }
+  .key { display: inline-block; width: 18px; height: 4px; border-radius: 2px; vertical-align: middle; }
+  .key.best { background: #7fe39a; } .key.played { background: #f0955a; }
   #toast { position: fixed; top: 108px; left: 50%; transform: translateX(-50%); padding: 9px 16px; font-size: 13px; transition: opacity .3s; }
 
   /* ---------- modales */
@@ -110,6 +175,8 @@
   #overReason { text-align: center; color: var(--muted); font-size: 14px; }
 
   @media (max-width: 1280px) { #toolbar button span { display: none; } #toolbar button { font-size: 16px; padding: 7px 11px; } .side { min-width: 120px; } }
+  /* la barre d'outils passe sous le tableau des scores quand elle risque de le chevaucher */
+  @media (max-width: 1440px) { #toolbar { top: 86px; } #coach, #review { top: 142px; max-height: calc(100vh - 218px); } }
   @media (max-width: 1000px) { #logo { display: none; } }
   @media (max-width: 860px) {
     #logo, #legend { display: none; }
@@ -118,6 +185,7 @@
     .side .sub { display: none; }
     #toolbar { top: auto; bottom: 70px; right: 50%; transform: translateX(50%); }
     #card { display: none; }
+    #coach, #review { top: 64px; left: 16px; right: 16px; width: auto; max-height: 38vh; }
     #status { bottom: 14px; font-size: 13px; }
   }
 </style>
@@ -148,7 +216,11 @@
   </div>
   <div id="world"></div>
   <div id="toolbar" class="glass">
+    <button id="btnPlay" class="hidden" title="Mettre en pause après ce coup">⏸<span> Pause</span></button>
+    <button id="btnStep" class="hidden" title="Jouer un seul coup">⏭<span> Coup suivant</span></button>
+    <button id="btnHint" title="Ce que le bot jouerait à ta place">💡<span> Conseil</span></button>
     <button id="btnUndo" title="Annuler le dernier coup">↶<span> Annuler</span></button>
+    <button id="btnCoach" title="Afficher le raisonnement du bot">◎<span> Analyse</span></button>
     <button id="btnView" title="Basculer la vue">⟲<span> Vue</span></button>
     <button id="btnHeights" title="Afficher les hauteurs">▦<span> Hauteurs</span></button>
     <button id="btnRules" title="Règles">?<span> Règles</span></button>
@@ -156,6 +228,8 @@
   </div>
   <div id="status" class="glass"><span class="dot" id="statusDot"></span><span id="statusText"></span></div>
   <div id="card" class="glass hidden-soft"></div>
+  <aside id="coach" class="glass hidden" aria-live="polite"></aside>
+  <aside id="review" class="glass hidden"></aside>
   <div id="legend" class="glass">
     <div><i style="background:#9be7ff"></i>Déplacement</div>
     <div><i style="background:#ff5a5a"></i>Attaque possible</div>
@@ -171,11 +245,11 @@
     <p class="tagline">Traverse les montagnes. Franchis l’arrivée. Écrase l’adversaire.</p>
     <div class="worlds"><b>25 769 803 776</b><span>mondes possibles · 6 modes × 2³² graines</span><em id="menuWorld"></em></div>
     <div class="field"><label>Mode de jeu</label>
-      <div class="seg" data-key="mode"><button data-v="bot" class="sel">Contre le bot</button><button data-v="pvp">2 joueurs (local)</button></div></div>
+      <div class="seg" data-key="mode"><button data-v="bot" class="sel">Contre le bot</button><button data-v="pvp">2 joueurs (local)</button><button data-v="bvb">Bot contre bot</button></div></div>
     <div class="field bot-only"><label>Ta couleur</label>
       <div class="seg" data-key="side"><button data-v="0" class="sel">Rouge (commence)</button><button data-v="1">Bleu</button></div></div>
-    <div class="field bot-only"><label>Difficulté</label>
-      <div class="seg" data-key="level"><button data-v="easy">Facile</button><button data-v="medium" class="sel">Moyen</button><button data-v="hard">Difficile</button></div></div>
+    <div class="field bots-only"><label>Difficulté</label>
+      <div class="seg" data-key="level"><button data-v="easy">Facile</button><button data-v="medium" class="sel">Moyen</button><button data-v="hard">Difficile</button><button data-v="expert" title="8 secondes de réflexion par coup">Expert</button></div></div>
     <div class="field"><label>Terrain</label>
       <div class="seg" data-key="terrain" id="terrainSeg"></div></div>
     <div class="field"><label>Thème <span class="theme-name" id="themeName"></span></label>
@@ -219,10 +293,11 @@
     <div class="big-score"><span style="color:var(--red)" id="overS0">0</span><span style="color:var(--muted)">–</span><span style="color:var(--blue)" id="overS1">0</span></div>
     <p id="overReason"></p>
     <button class="primary" id="btnAgain">Rejouer</button>
+    <button class="ghost" id="btnReview">Analyser la partie</button>
     <div class="row2"><button class="ghost" id="btnOverMenu">Menu</button><button class="ghost" id="btnOverBoard">Voir le plateau</button></div>
   </div>
 </div>
 
-<script type="module" src="./main.js?v=33"></script>
+<script type="module" src="./main.js?v=43"></script>
 </body>
 </html>

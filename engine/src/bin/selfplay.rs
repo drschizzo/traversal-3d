@@ -47,6 +47,7 @@ fn limits_from(a: &Args, pre: &str) -> Limits {
         time_ms: a.get(&format!("{pre}time"), 0.0),
         noise: a.get(&format!("{pre}noise"), 0),
         quiesce: a.get(&format!("{pre}quiesce"), 1) != 0,
+        multipv: 0,
     }
 }
 
@@ -65,6 +66,7 @@ fn main() {
         "match" => run_match(&args),
         "gen" => gen(&args),
         "bench" => bench(&args),
+        "pvtest" => pvtest(&args),
         _ => eprintln!("commandes : terrain | dump | match | gen | bench"),
     }
 }
@@ -110,9 +112,24 @@ fn bench(a: &Args) {
     let mut e = Engine::new(b.h, Params::default(), 20);
     let s = State::new_game(&b);
     let t = Instant::now();
-    let info = e.think(&s, Limits { max_depth: a.get("depth", 64), max_nodes: 0, time_ms: a.get("time", 3000.0), noise: 0, quiesce: true });
+    let info = e.think(&s, Limits { max_depth: a.get("depth", 64), max_nodes: 0, time_ms: a.get("time", 3000.0), noise: 0, quiesce: true, multipv: 0 });
     let dt = t.elapsed().as_secs_f64();
+    eprintln!("variante enregistrée {} coups, complétée {} coups", e.last_pv.len(), e.pv_line(&s, 16).len());
     println!("profondeur {} nœuds {} ({:.0} k/s) éval {} coup pi={} kind={} to={}", info.depth, info.nodes, info.nodes as f64 / dt / 1000.0, info.score, info.mv.pi, info.mv.kind, info.mv.to);
+}
+
+// longueur de la variante principale au fil d'une partie (diagnostic)
+fn pvtest(a: &Args) {
+    let b = Board::new(generate_terrain("random", a.get("seed", 777u32)));
+    let mut e = Engine::new(b.h, Params::default(), 19);
+    let mut s = State::new_game(&b);
+    for _ in 0..a.get("plies", 12) {
+        if s.over { break; }
+        let info = e.think(&s, Limits { max_depth: a.get("depth", 9), max_nodes: 0, time_ms: a.get("time", 0.0), noise: 0, quiesce: true, multipv: a.get("multipv", 4) });
+        let full = e.pv_line(&s, 16);
+        println!("ply {} score {} profondeur {} variante {} complétée {}", s.ply, info.score, info.depth, e.last_pv.len(), full.len());
+        s = apply_move(&b, &s, info.mv);
+    }
 }
 
 struct GameRecord { winner: i8, reason: u8, plies: i32, json: String }

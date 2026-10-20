@@ -31,10 +31,15 @@ pub struct Limits {
     pub time_ms: f64,    // 0 = illimité
     pub noise: i32,      // bruit aléatoire ajouté aux coups racine (niveaux faciles)
     pub quiesce: bool,
+    pub multipv: usize,  // nombre de coups racine évalués exactement (pour expliquer les alternatives)
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-pub struct SearchInfo { pub mv: Move, pub score: i32, pub depth: i32, pub nodes: u64 }
+pub struct SearchInfo {
+    pub mv: Move, pub score: i32, pub depth: i32, pub nodes: u64,
+    pub alts: [(Move, i32); 4], // meilleurs coups racine évalués exactement, du meilleur au moins bon
+    pub n_alts: usize,
+}
 
 #[derive(Clone, Copy, Default)]
 struct TTEntry { key: u64, mv: Move, score: i32, depth: i8, flag: u8 }
@@ -61,6 +66,9 @@ pub struct Engine {
     tt_mask: usize,
     killers: [[Move; 2]; MAX_PLY],
     history: Box<[[i32; NC]; NP]>,
+    pv_table: Box<[[Move; MAX_PLY]; MAX_PLY]>, // variante principale triangulaire, par ply
+    pv_len: [usize; MAX_PLY],
+    pub last_pv: Vec<Move>,                    // variante principale de la dernière recherche complète
     nodes: u64,
     stop: bool,
     limits: Limits,
@@ -78,8 +86,9 @@ impl Engine {
             b: Board::new(h), params, turns, legacy_ed,
             tt: vec![TTEntry::default(); size], tt_mask: size - 1,
             killers: [[Move::NONE; 2]; MAX_PLY], history: Box::new([[0; NC]; NP]),
+            pv_table: Box::new([[Move::NONE; MAX_PLY]; MAX_PLY]), pv_len: [0; MAX_PLY], last_pv: Vec::new(),
             nodes: 0, stop: false,
-            limits: Limits { max_depth: 1, max_nodes: 0, time_ms: 0.0, noise: 0, quiesce: true },
+            limits: Limits { max_depth: 1, max_nodes: 0, time_ms: 0.0, noise: 0, quiesce: true, multipv: 0 },
             deadline: 0.0, rng: 0x2545F4914F6CDD1D,
         }
     }
@@ -211,6 +220,7 @@ impl Engine {
     // valeur de l'enfant c vue par le camp qui vient de jouer (side)
     #[inline]
     fn child(&mut self, c: &State, side: u8, depth: i32, alpha: i32, beta: i32, ply: usize) -> i32 {
+        if ply < MAX_PLY { self.pv_len[ply] = 0; }
         if c.over { return terminal(c, side); }
         if c.turn == side { self.search(c, depth, alpha, beta, ply) } else { -self.search(c, depth, -beta, -alpha, ply) }
     }
@@ -221,7 +231,7 @@ impl Engine {
         }
         self.tick();
         if self.stop { return 0; }
-        let pv = beta - alpha > 1;
+        let pv = beta as i64 - alpha as i64 > 1; // en i64 : une fenêtre complète déborde un i32
         let slot = (s.hash as usize) & self.tt_mask;
         let e = self.tt[slot];
         let mut tt_move = Move::NONE;
@@ -261,7 +271,7 @@ impl Engine {
             };
             if self.stop { return 0; }
             if v > best { best = v; best_move = m; }
-            if v > alpha { alpha = v; }
+            if v > alpha { alpha = v; self.update_pv(ply, m); }
             if alpha >= beta {
                 if m.kind == K_MOVE {
                     if ply < MAX_PLY && self.killers[ply][0].key() != m.key() {
@@ -281,6 +291,15 @@ impl Engine {
         best
     }
 
+    // le coup m devient la tête de la variante au ply donné, suivi de la variante de l'enfant
+    fn update_pv(&mut self, ply: usize, m: Move) {
+        if ply + 1 >= MAX_PLY { return; }
+        let n = self.pv_len[ply + 1].min(MAX_PLY - ply - 1);
+        self.pv_table[ply][0] = m;
+        for k in 0..n { self.pv_table[ply][k + 1] = self.pv_table[ply + 1][k]; }
+        self.pv_len[ply] = n + 1;
+    }
+
     // ------------------------------------------------------------ racine
     pub fn think(&mut self, s: &State, limits: Limits) -> SearchInfo {
         self.limits = limits;
@@ -291,15 +310,17 @@ impl Engine {
         for row in self.history.iter_mut() { for h in row.iter_mut() { *h /= 8; } }
         let mut ml = MoveList::new();
         gen_moves(&self.b, s, &mut ml, false);
-        let mut info = SearchInfo { mv: Move::NONE, score: 0, depth: 0, nodes: 0 };
+        let mut info = SearchInfo { mv: Move::NONE, score: 0, depth: 0, nodes: 0, alts: [(Move::NONE, 0); 4], n_alts: 0 };
         if ml.n == 0 { return info; }
         let mut sc = [0i32; 256];
         for i in 0..ml.n { sc[i] = self.score_move(s, &ml.m[i], Move::NONE, 0); }
         for i in 0..ml.n { pick(&mut ml, &mut sc, i); }
-        let mut root: Vec<(i32, Move)> = ml.as_slice().iter().map(|&m| (0, m)).collect();
+        // (score bruité pour le tri, coup, variante, score réel)
+        let mut root: Vec<(i32, Move, Vec<Move>, i32)> = ml.as_slice().iter().map(|&m| (0, m, Vec::new(), 0)).collect();
         info.mv = root[0].1;
         let side = s.turn;
         let noise: Vec<i32> = (0..root.len()).map(|_| if limits.noise > 0 { ((self.rand() - 0.5) * limits.noise as f64) as i32 } else { 0 }).collect();
+        self.last_pv = vec![info.mv];
         for depth in 1..=limits.max_depth.max(1) {
             let mut alpha = -INF;
             let mut done = true;
@@ -307,28 +328,73 @@ impl Engine {
                 let m = root[k].1;
                 let a0 = alpha;
                 let c = apply_move(&self.b, s, m);
-                let v = if limits.noise > 0 || k == 0 {
-                    self.child(&c, side, depth - 1, if limits.noise > 0 { -INF } else { alpha }, INF, 1)
+                let exact = limits.noise > 0 || k < limits.multipv;
+                let v = if exact || k == 0 {
+                    self.child(&c, side, depth - 1, if exact { -INF } else { alpha }, INF, 1)
                 } else {
                     let mut v = self.child(&c, side, depth - 1, alpha, alpha + 1, 1);
                     if v > alpha && !self.stop { v = self.child(&c, side, depth - 1, alpha, INF, 1); }
                     v
                 };
                 if self.stop { done = false; break; }
-                root[k].0 = if limits.noise > 0 || v > a0 { v + noise[k] } else { -INF };
+                root[k].0 = if exact || v > a0 { v + noise[k] } else { -INF };
+                root[k].3 = if exact || v > a0 { v } else { -INF };
+                if exact || v > a0 {
+                    let mut line = vec![m];
+                    line.extend_from_slice(&self.pv_table[1][..self.pv_len[1]]);
+                    root[k].2 = line;
+                }
                 if v > alpha { alpha = v; }
             }
             if !done { break; }
             // tri stable : le meilleur coup en tête pour la profondeur suivante
             root.sort_by(|a, b| b.0.cmp(&a.0));
-            info = SearchInfo { mv: root[0].1, score: root[0].0, depth, nodes: self.nodes };
-            if root[0].0.abs() >= WIN - 1000 { break; }
+            info.mv = root[0].1;
+            info.score = root[0].3;
+            self.last_pv = root[0].2.clone();
+            info.depth = depth;
+            info.n_alts = 0;
+            for &(v, m, _, raw) in root.iter().take(4) {
+                if v <= -INF / 2 { break; }
+                let v = raw;
+                info.alts[info.n_alts] = (m, v);
+                info.n_alts += 1;
+            }
+            if root[0].3.abs() >= WIN - 1000 { break; }
             if limits.time_ms > 0.0 && now_ms() > self.deadline { break; }
             if limits.max_nodes > 0 && self.nodes >= limits.max_nodes { break; }
         }
         info.nodes = self.nodes;
         info
     }
+}
+
+impl Engine {
+    // Variante principale : celle enregistrée pendant la recherche, prolongée par la table de transpositions
+    pub fn pv_line(&self, s: &State, max: usize) -> Vec<Move> {
+        let mut line = Vec::new();
+        let mut cur = *s;
+        for &m in self.last_pv.iter().take(max) {
+            if cur.over { break; }
+            let mut ml = MoveList::new();
+            gen_moves(&self.b, &cur, &mut ml, false);
+            if !ml.as_slice().iter().any(|x| x.key() == m.key()) { break; }
+            line.push(m);
+            cur = apply_move(&self.b, &cur, m);
+        }
+        while line.len() < max && !cur.over {
+            let e = self.tt[(cur.hash as usize) & self.tt_mask];
+            if e.key != cur.hash || e.mv.is_none() { break; }
+            let mut ml = MoveList::new();
+            gen_moves(&self.b, &cur, &mut ml, false);
+            let Some(&m) = ml.as_slice().iter().find(|m| m.key() == e.mv.key()) else { break };
+            line.push(m);
+            cur = apply_move(&self.b, &cur, m);
+        }
+        line
+    }
+
+    pub fn turns_table(&self) -> &[[[u8; NC]; 3]; 2] { &self.turns }
 }
 
 #[inline]

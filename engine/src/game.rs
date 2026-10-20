@@ -173,7 +173,7 @@ impl Move {
     #[inline]
     pub fn is_none(&self) -> bool { self.pi == 255 }
     #[inline]
-    pub fn key(&self) -> u16 { (self.pi as u16) << 8 | (self.kind as u16) << 7 | self.to as u16 }
+    pub fn key(&self) -> u16 { (self.pi as u16) << 9 | (self.kind as u16) << 7 | self.to as u16 }
 }
 
 #[derive(Clone, Copy, Debug, Default)]

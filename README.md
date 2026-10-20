@@ -41,7 +41,16 @@ Les règles complètes et officielles sont sur [traversalgame.com/rules](https:/
 
 ## Ce que propose cette version
 
-- **Deux modes** : 2 joueurs en local, ou contre un bot (facile, moyen, difficile).
+- **Trois modes** : 2 joueurs en local, contre un bot (facile, moyen, difficile, expert), ou **bot contre bot**
+  pour regarder jouer le bot le plus fort, avec pause, coup par coup et retour en arrière.
+- **Apprendre du bot** : le panneau *Analyse* explique chaque coup du bot (chances de gain estimées, course des
+  Sentinelles, captures, pièces mises à l'abri ou laissées en prise, menaces créées), montre la suite qu'il prévoit
+  (traçable sur le plateau), les coups qu'il a écartés et ce qu'ils auraient coûté, et la courbe d'évaluation de la partie.
+  Sur ton tour, *Conseil* montre ce que le bot jouerait à ta place, et pourquoi.
+- **Analyse de partie** : en fin de partie (contre le bot ou à deux), chaque coup humain est noté
+  (meilleur coup, excellent, bon, imprécision, erreur, gaffe) en le comparant au meilleur coup du moteur.
+  Le bilan donne une précision par joueur et la courbe des chances. Un clic sur un coup ramène le plateau à
+  cette position, trace le coup joué et le meilleur coup, et explique la différence.
   Le bot est un moteur écrit en Rust et compilé en WebAssembly (`engine/`), qui tourne dans un Web Worker :
   negamax alpha-bêta avec table de transpositions, ~1 million de positions/s dans le navigateur,
   une dizaine de coups d'avance en niveau difficile.
@@ -107,7 +116,9 @@ python3 analysis/analyze.py parties.jsonl                                       
 | `index.html` | Interface (HUD, menus, styles) |
 | `main.js` | Rendu Three.js : plateau, pièces, décor, effets, post-traitement, interactions |
 | `game.js` | Moteur de règles (pur, sans DOM) et générateur de terrain |
-| `ai-worker.js` | Web Worker du bot : charge `engine/traversal.wasm` |
+| `ai-worker.js` | Web Worker du bot : charge `engine/traversal.wasm`, renvoie le coup et son analyse |
+| `coach.js` | Explication des coups du bot à partir de l'analyse du moteur (panneau *Analyse* et *Conseil*) |
+| `review.js` | Analyse de fin de partie : notation des coups humains, bilan, détail des fautes |
 | `engine/` | Moteur du bot en Rust (règles, recherche, évaluation), banc d'essai et analyses statistiques |
 | `ai.js` | Ancien bot en JavaScript, utilisé en secours si le WebAssembly ne se charge pas |
 | `themes.js` | Définition des thèmes (palettes, matières, effets), documentée en tête de fichier |
