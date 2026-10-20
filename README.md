@@ -56,6 +56,12 @@ Les règles complètes et officielles sont sur [traversalgame.com/rules](https:/
 
 ![Le thème Atelier, inspiré de la version en bois imaginée à l'origine pour le jeu](docs/atelier.jpg)
 
+## Guide de stratégie
+
+Le [guide de stratégie](docs/guide-strategie.md) rassemble les principes que l'on peut tirer de 13 000 parties jouées
+par le bot contre lui-même : course des Sentinelles, valeur des pièces, combat, défense, géographie du plateau,
+particularités de chaque terrain.
+
 ## Lancer le jeu
 
 Le projet n'a aucune étape de build : ce sont des modules ES, avec Three.js chargé depuis un CDN.

@@ -200,9 +200,9 @@ def main():
             s0, s1 = min(min(tl[0][2]), 12), min(min(tl[1][2]), 12)
             b0 = min(min(min(v) for v in tl[0]), 12)
             b1 = min(min(min(v) for v in tl[1]), 12)
-            tomove = 1 if m['o'] == 0 else -1
-            rows[gi].append(([1, *mat, s1 - s0, b1 - b0, tomove], result(g, 0)))
-    names = ['constante', 'Explorateur', 'Avant-garde', 'Sentinelle', 'avance_sentinelle (tours)', 'avance_meilleure_piece (tours)', 'trait']
+            # plies pairs : c'est toujours à Rouge de jouer, le trait est absorbé par la constante
+            rows[gi].append(([1, *mat, s1 - s0, b1 - b0], result(g, 0)))
+    names = ['constante', 'Explorateur', 'Avant-garde', 'Sentinelle', 'avance_sentinelle (tours)', 'avance_meilleure_piece (tours)']
     gids = list(rows)
 
     def fit(sample):
