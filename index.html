@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Traversal 3D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --display: 'Space Grotesk', Inter, system-ui, sans-serif;
+    --red: #e0484f; --blue: #4d8cf0; --gold: #f2c46d;
+    --glass: rgba(20, 22, 30, .62); --glass-2: rgba(255, 255, 255, .07);
+    --line: rgba(255, 255, 255, .12); --text: #eef0f4; --muted: #a8adbb;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1b1e26; color: var(--text); font-family: Inter, system-ui, sans-serif; }
+  #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  .glass { background: var(--glass); backdrop-filter: blur(14px) saturate(1.3); -webkit-backdrop-filter: blur(14px) saturate(1.3); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,.25); }
+  .hidden { display: none !important; }
+
+  /* ---------- HUD */
+  #logo { position: fixed; top: 16px; left: 20px; font-family: var(--display); font-weight: 700; font-size: 22px; letter-spacing: .18em; text-transform: uppercase; color: #fff; text-shadow: 0 2px 12px rgba(0,0,0,.45); pointer-events: none; }
+  #scoreboard { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); display: flex; align-items: stretch; padding: 6px; gap: 6px; }
+  .side { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 11px; min-width: 150px; transition: background .3s, box-shadow .3s; }
+  .side.p1 { flex-direction: row-reverse; text-align: right; }
+  .side .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+  .side .name { font-weight: 600; font-size: 13px; }
+  .side .sub { font-size: 11px; color: var(--muted); }
+  .side .pts { font-family: var(--display); font-size: 28px; font-weight: 700; line-height: 1; margin-left: auto; }
+  .side.p1 .pts { margin-left: 0; margin-right: auto; }
+  .side.active.p0 { background: rgba(224, 72, 79, .22); box-shadow: inset 0 0 0 1px rgba(224,72,79,.6); }
+  .side.active.p1 { background: rgba(77, 140, 240, .22); box-shadow: inset 0 0 0 1px rgba(77,140,240,.6); }
+  #mid { display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 0 14px; border-left: 1px solid var(--line); border-right: 1px solid var(--line); font-size: 11px; color: var(--muted); gap: 3px; min-width: 110px; }
+  #mid b { color: var(--text); font-size: 13px; }
+  .lost { font-size: 13px; letter-spacing: 2px; opacity: .75; min-height: 14px; }
+
+  #toolbar { position: fixed; top: 16px; right: 16px; display: flex; gap: 6px; padding: 5px; }
+  #toolbar button { background: transparent; border: 0; padding: 8px 11px; border-radius: 10px; font-size: 13px; font-weight: 500; white-space: nowrap; }
+  #toolbar button:hover { background: var(--glass-2); }
+  #toolbar button.on { background: rgba(242,196,109,.18); color: var(--gold); }
+  #toolbar button:disabled { opacity: .35; cursor: default; }
+
+  #status { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 11px 20px; font-size: 14px; display: flex; align-items: center; gap: 10px; white-space: nowrap; max-width: calc(100vw - 32px); }
+  #status .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .spinner { width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.25); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #card { position: fixed; left: 16px; bottom: 20px; width: 250px; padding: 14px 16px; transition: opacity .2s, transform .2s; }
+  #card.hidden-soft { opacity: 0; transform: translateY(8px); pointer-events: none; }
+  #card .head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  #card .glyph { font-size: 26px; line-height: 1; }
+  #card .title { font-family: var(--display); font-weight: 700; font-size: 17px; letter-spacing: .02em; }
+  #card .owner { font-size: 11px; color: var(--muted); }
+  #card .stats { display: flex; gap: 8px; margin-bottom: 10px; }
+  #card .stat { flex: 1; background: var(--glass-2); border-radius: 10px; padding: 7px 8px; text-align: center; }
+  #card .stat b { display: block; font-family: var(--display); font-size: 20px; }
+  #card .stat span { font-size: 10px; letter-spacing: .08em; color: var(--muted); text-transform: uppercase; }
+  #card p { margin: 0; font-size: 12px; line-height: 1.45; color: #d4d7df; }
+
+  #legend { position: fixed; right: 16px; bottom: 20px; padding: 10px 14px; font-size: 12px; color: #d4d7df; display: grid; gap: 5px; }
+  #legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 8px; vertical-align: -2px; }
+
+  #tip { position: fixed; pointer-events: none; padding: 9px 12px; font-size: 12px; line-height: 1.5; z-index: 20; transform: translate(14px, 14px); min-width: 150px; }
+  #tip .ok { color: #7fe39a; font-weight: 700; }
+  #tip table { border-collapse: collapse; }
+  #tip td { padding: 0 6px 0 0; }
+  #tip td.n { text-align: right; font-weight: 600; }
+
+  .float { position: fixed; font-family: var(--display); font-weight: 700; font-size: 34px; pointer-events: none; text-shadow: 0 3px 14px rgba(0,0,0,.5); animation: floatUp 1.6s ease-out forwards; z-index: 15; }
+  @keyframes floatUp { from { opacity: 0; transform: translate(-50%, 0) scale(.6); } 15% { opacity: 1; transform: translate(-50%, -10px) scale(1.15); } to { opacity: 0; transform: translate(-50%, -90px) scale(1); } }
+
+  #world { position: fixed; top: 84px; left: 50%; transform: translateX(-50%); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: rgba(242,196,109,.75); pointer-events: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .worlds { text-align: center; margin: -8px 0 20px; display: grid; gap: 2px; }
+  .worlds b { font-family: var(--display); font-size: 24px; letter-spacing: .04em; color: var(--gold); font-variant-numeric: tabular-nums; }
+  .worlds span { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+  .worlds em { font-style: normal; font-size: 12px; color: #d4d7df; margin-top: 6px; }
+  #toast { position: fixed; top: 108px; left: 50%; transform: translateX(-50%); padding: 9px 16px; font-size: 13px; transition: opacity .3s; }
+
+  /* ---------- modales */
+  .modal { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(10, 12, 18, .35); z-index: 30; padding: 16px; }
+  .panel { width: min(520px, 100%); max-height: calc(100vh - 32px); overflow: auto; padding: 28px; }
+  .panel h1 { font-family: var(--display); font-weight: 700; font-size: 38px; margin: 0; letter-spacing: .16em; text-transform: uppercase; text-align: center; }
+  .panel h2 { font-family: var(--display); font-weight: 700; margin: 0 0 4px; font-size: 26px; text-align: center; }
+  .tagline { text-align: center; color: var(--muted); margin: 4px 0 22px; font-size: 14px; }
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 7px; }
+  .seg { display: flex; flex-wrap: wrap; gap: 6px; }
+  .seg button { flex: 1 1 auto; padding: 9px 12px; background: var(--glass-2); border: 1px solid transparent; border-radius: 10px; font-size: 13px; font-weight: 500; transition: background .15s, border-color .15s; }
+  .seg button:hover { background: rgba(255,255,255,.12); }
+  .seg button.sel { background: rgba(242,196,109,.16); border-color: rgba(242,196,109,.7); color: #ffe3a8; }
+  /* sélecteur de thème : une rangée de pastilles, le nom s'affiche à côté du libellé */
+  .theme-name { margin-left: 6px; color: #ffe3a8; letter-spacing: .06em; text-transform: none; font-size: 12px; font-weight: 600; }
+  .seg.themes { flex-wrap: nowrap; justify-content: space-between; gap: 4px; }
+  .seg.themes button { flex: 0 0 auto; width: 38px; height: 38px; padding: 0; border-radius: 50%; border: 0; position: relative;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.18), 0 3px 10px rgba(0,0,0,.35); transition: transform .15s, box-shadow .15s; }
+  .seg.themes button:hover { transform: translateY(-2px) scale(1.06); background-blend-mode: normal; }
+  .seg.themes button.sel { box-shadow: 0 0 0 2px rgba(20,22,30,.9), 0 0 0 4px #f2c46d, 0 4px 14px rgba(242,196,109,.35); }
+  @media (max-width: 480px) { .seg.themes { flex-wrap: wrap; justify-content: center; gap: 8px; } .seg.themes button { width: 34px; height: 34px; } }
+  .seg.themes button i { position: absolute; inset: 9px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); }
+  .primary { width: 100%; margin-top: 8px; padding: 13px; border: 0; border-radius: 12px; background: linear-gradient(180deg, #f5cf7f, #d9a547); color: #2a1d05; font-weight: 700; font-size: 15px; letter-spacing: .03em; box-shadow: 0 6px 20px rgba(217,165,71,.35); }
+  .primary:hover { filter: brightness(1.06); }
+  .ghost { width: 100%; margin-top: 8px; padding: 11px; border: 1px solid var(--line); border-radius: 12px; background: transparent; font-weight: 500; }
+  .row2 { display: flex; gap: 8px; }
+  .rules { font-size: 13.5px; line-height: 1.6; color: #dadde4; }
+  .rules h3 { font-family: var(--display); font-weight: 600; font-size: 15px; margin: 18px 0 4px; color: #fff; }
+  .rules ul { margin: 4px 0; padding-left: 18px; }
+  .big-score { display: flex; justify-content: center; gap: 30px; margin: 18px 0 8px; font-family: var(--display); font-size: 40px; font-weight: 700; }
+  #overReason { text-align: center; color: var(--muted); font-size: 14px; }
+
+  @media (max-width: 1280px) { #toolbar button span { display: none; } #toolbar button { font-size: 16px; padding: 7px 11px; } .side { min-width: 120px; } }
+  @media (max-width: 1000px) { #logo { display: none; } }
+  @media (max-width: 860px) {
+    #logo, #legend { display: none; }
+    #scoreboard { top: 8px; }
+    .side { min-width: 0; padding: 6px 9px; }
+    .side .sub { display: none; }
+    #toolbar { top: auto; bottom: 70px; right: 50%; transform: translateX(50%); }
+    #card { display: none; }
+    #status { bottom: 14px; font-size: 13px; }
+  }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="scene"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="logo">Traversal</div>
+  <div id="scoreboard" class="glass">
+    <div class="side p0" id="side0">
+      <span class="dot" style="background:var(--red)"></span>
+      <div><div class="name" id="name0">Rouge</div><div class="sub">Pertes <span class="lost" id="lost0"></span></div></div>
+      <div class="pts" id="score0">0</div>
+    </div>
+    <div id="mid"><span>Coup <b id="ply">0</b> / 200</span><span>Arrivées <b id="crossed">0</b> / 2</span></div>
+    <div class="side p1" id="side1">
+      <span class="dot" style="background:var(--blue)"></span>
+      <div><div class="name" id="name1">Bleu</div><div class="sub">Pertes <span class="lost" id="lost1"></span></div></div>
+      <div class="pts" id="score1">0</div>
+    </div>
+  </div>
+  <div id="world"></div>
+  <div id="toolbar" class="glass">
+    <button id="btnUndo" title="Annuler le dernier coup">↶<span> Annuler</span></button>
+    <button id="btnView" title="Basculer la vue">⟲<span> Vue</span></button>
+    <button id="btnHeights" title="Afficher les hauteurs">▦<span> Hauteurs</span></button>
+    <button id="btnRules" title="Règles">?<span> Règles</span></button>
+    <button id="btnMenu" title="Menu">☰<span> Menu</span></button>
+  </div>
+  <div id="status" class="glass"><span class="dot" id="statusDot"></span><span id="statusText"></span></div>
+  <div id="card" class="glass hidden-soft"></div>
+  <div id="legend" class="glass">
+    <div><i style="background:#9be7ff"></i>Déplacement</div>
+    <div><i style="background:#ff5a5a"></i>Attaque possible</div>
+    <div><i style="background:#ffd36b"></i>Sortie / arrivée</div>
+  </div>
+  <div id="toast" class="glass hidden"></div>
+</div>
+<div id="tip" class="glass hidden"></div>
+
+<div id="menu" class="modal">
+  <div class="panel glass">
+    <h1>Traversal</h1>
+    <p class="tagline">Traverse les montagnes. Franchis l’arrivée. Écrase l’adversaire.</p>
+    <div class="worlds"><b>25 769 803 776</b><span>mondes possibles · 6 modes × 2³² graines</span><em id="menuWorld"></em></div>
+    <div class="field"><label>Mode de jeu</label>
+      <div class="seg" data-key="mode"><button data-v="bot" class="sel">Contre le bot</button><button data-v="pvp">2 joueurs (local)</button></div></div>
+    <div class="field bot-only"><label>Ta couleur</label>
+      <div class="seg" data-key="side"><button data-v="0" class="sel">Rouge (commence)</button><button data-v="1">Bleu</button></div></div>
+    <div class="field bot-only"><label>Difficulté</label>
+      <div class="seg" data-key="level"><button data-v="easy">Facile</button><button data-v="medium" class="sel">Moyen</button><button data-v="hard">Difficile</button></div></div>
+    <div class="field"><label>Terrain</label>
+      <div class="seg" data-key="terrain" id="terrainSeg"></div></div>
+    <div class="field"><label>Thème <span class="theme-name" id="themeName"></span></label>
+      <div class="seg themes" data-key="theme" id="themeSeg"></div></div>
+    <button class="primary" id="btnStart">Jouer</button>
+    <div class="row2">
+      <button class="ghost" id="btnMenuRules">Règles du jeu</button>
+      <button class="ghost hidden" id="btnResume">Reprendre la partie</button>
+    </div>
+  </div>
+</div>
+
+<div id="rules" class="modal hidden">
+  <div class="panel glass rules">
+    <h2>Règles</h2>
+    <p>Plateau 10×10 en relief. Chaque joueur a 6 pièces et doit leur faire <b>traverser le plateau</b> puis sortir par le bord opposé. Chaque pièce arrivée rapporte sa <b>Force</b>. Dès que <b>deux pièces</b> (tous camps confondus) sont arrivées, le score le plus élevé gagne.</p>
+    <h3>Pièces (Mouvement + Force = 6)</h3>
+    <ul>
+      <li><b>⬟ Explorateur</b> — Mvt 5, Force 1. Peut aussi faire 1 pas en diagonale ou bondir de 2 cases en ligne droite, sans coût de hauteur.</li>
+      <li><b>◆ Avant-garde</b> — Mvt 4, Force 2. +1 en attaque si le plus court chemin vers la cible coûte exactement 4.</li>
+      <li><b>▲ Sentinelle</b> — Mvt 3, Force 3. Si elle est la toute première pièce à arriver, victoire immédiate.</li>
+    </ul>
+    <h3>Déplacement</h3>
+    <p>Pas orthogonaux. Coût : 1 sur le plat, <b>différence de hauteur + 1</b> en montée ou en descente. On ne traverse aucune pièce. Pour sortir, il faut être sur la dernière rangée avec encore 1 point de Mouvement.</p>
+    <h3>Combat</h3>
+    <p>Se déplacer sur une case ennemie = attaque. Elle n’est permise que si <b>Attaque ≥ Défense</b>.</p>
+    <ul>
+      <li>Attaque = Force + hauteur (+1 si départ plus haut que la cible, −1 si plus bas) + Force de chaque allié adjacent à la cible.</li>
+      <li>Défense = Force + 1 par allié adjacent au défenseur.</li>
+    </ul>
+    <h3>Limite</h3>
+    <p>À 200 coups, le meilleur score gagne ; sans score, la pièce la plus proche de l’arrivée (puis la plus forte) l’emporte.</p>
+    <p style="color:var(--muted)">Astuce : survole une case colorée pour voir le chemin, et une cible rouge pour le détail du combat.</p>
+    <button class="primary" id="btnCloseRules">Compris</button>
+  </div>
+</div>
+
+<div id="over" class="modal hidden">
+  <div class="panel glass">
+    <h2 id="overTitle">Victoire</h2>
+    <div class="big-score"><span style="color:var(--red)" id="overS0">0</span><span style="color:var(--muted)">–</span><span style="color:var(--blue)" id="overS1">0</span></div>
+    <p id="overReason"></p>
+    <button class="primary" id="btnAgain">Rejouer</button>
+    <div class="row2"><button class="ghost" id="btnOverMenu">Menu</button><button class="ghost" id="btnOverBoard">Voir le plateau</button></div>
+  </div>
+</div>
+
+<script type="module" src="./main.js?v=33"></script>
+</body>
+</html>

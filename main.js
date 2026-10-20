@@ -1,0 +1,1527 @@
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import * as G from './game.js';
+import { chooseMove } from './ai.js';
+import { THEMES } from './themes.js';
+
+const LEVEL = 0.3;
+const topY = h => (h + 1) * LEVEL;
+const cellXZ = i => [G.cx(i) - 4.5, 4.5 - G.cy(i)];
+const TEAM = [
+  { main: 0xc8323c, dark: 0x5c1117, css: '#e0484f' },
+  { main: 0x2c68d6, dark: 0x102c66, css: '#4d8cf0' },
+];
+const $ = id => document.getElementById(id);
+
+// ================================================================ renderer & scène
+const canvas = $('scene');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.autoUpdate = false;   // recalcul à la demande (voir la boucle)
+let shadowDirty = true;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+
+const scene = new THREE.Scene();
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+const HORIZON = new THREE.Color(0x1f2238);
+scene.fog = new THREE.Fog(HORIZON, 34, 120);
+
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 300);
+camera.position.set(0, 12.5, 12.5);
+const controls = new OrbitControls(camera, canvas);
+controls.target.set(0, 0.6, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 7;
+controls.maxDistance = 34;
+controls.maxPolarAngle = Math.PI * 0.3;   // l'horizon reste hors champ
+controls.enablePan = false;
+
+// recule la caméra sur les écrans étroits pour que tout le plateau reste visible
+function fitCamera() {
+  const dist = 16.5 * Math.max(1, 1.35 / camera.aspect);
+  controls.maxDistance = dist;   // pas de dézoom au-delà du cadrage par défaut
+  const off = camera.position.clone().sub(controls.target);
+  camera.position.copy(controls.target).add(off.setLength(Math.min(dist, controls.maxDistance)));
+}
+fitCamera();
+
+// post-traitement : halo lumineux puis étalonnage (le flou du décor est fait directement sur le pavage, voir renderField)
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { samples: 4, type: THREE.HalfFloatType }));
+composer.setPixelRatio(renderer.getPixelRatio());
+composer.setSize(innerWidth, innerHeight);
+composer.addPass(new RenderPass(scene, camera));
+// halo lumineux autour des sources vives (braises, lucioles, éclats de givre…), réglé par thème
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.4, 0.5, 0.85);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// étalonnage final, en espace écran : une seule passe plein écran, tous les effets pilotés par le thème
+const gradePass = new ShaderPass({
+  uniforms: {
+    tDiffuse: { value: null }, uTime: { value: 0 }, uRes: { value: new THREE.Vector2(1, 1) },
+    uVignette: { value: 0.3 }, uVigColor: { value: new THREE.Color(0) },
+    uShadowTint: { value: new THREE.Color(0) }, uHighTint: { value: new THREE.Color(0) },
+    uSat: { value: 1 }, uContrast: { value: 1 }, uGrain: { value: 0 }, uCA: { value: 0 },
+    uFrost: { value: 0 }, uLeak: { value: new THREE.Color(0) }, uHeat: { value: 0 },
+  },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform float uTime, uVignette, uSat, uContrast, uGrain, uCA, uFrost, uHeat;
+    uniform vec2 uRes; uniform vec3 uVigColor, uShadowTint, uHighTint, uLeak;
+    varying vec2 vUv;
+    float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+    float n2(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+      return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), f.x), f.y); }
+    void main(){
+      vec2 uv = vUv, c = uv - 0.5;
+      float edge = length(c * vec2(uRes.x / uRes.y, 1.0));
+      // chaleur : l'air ondule en haut de l'écran (là où il n'y a que le décor)
+      float heatW = 0.0, heatN = 0.0;
+      if (uHeat > 0.0) {
+        // le centre de l'écran (où se trouve le plateau) est presque épargné, pour garder la lisibilité
+        heatW = smoothstep(0.2, 0.85, uv.y) * (0.12 + 0.88 * smoothstep(0.28, 0.6, edge)) * uHeat;
+        heatN = n2(vec2(uv.x * 9.0, uv.y * 6.0 - uTime * 1.4)) - 0.5;
+        uv.x += heatN * 0.014 * heatW;
+        uv.y += (n2(vec2(uv.x * 7.0 + 3.0, uv.y * 5.0 - uTime * 1.1)) - 0.5) * 0.01 * heatW;
+      }
+      // aberration chromatique, seulement vers les bords
+      vec3 col;
+      if (uCA > 0.0) {
+        vec2 o = c * uCA * edge * 0.02;
+        col = vec3(texture2D(tDiffuse, uv + o).r, texture2D(tDiffuse, uv).g, texture2D(tDiffuse, uv - o).b);
+      } else col = texture2D(tDiffuse, uv).rgb;
+      // teintes : ombres et hautes lumières colorées séparément
+      float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
+      col += uShadowTint * (1.0 - smoothstep(0.0, 0.5, l)) + uHighTint * smoothstep(0.45, 1.0, l);
+      col = mix(vec3(l), col, uSat);
+      col = (col - 0.5) * uContrast + 0.5;
+      // chaleur : en plus de la déformation, des volutes d'air chaud plus claires montent
+      col += vec3(0.5, 0.18, 0.04) * max(heatN, 0.0) * heatW * 0.35;
+      // fuites de lumière : grand halo qui respire depuis un coin, et un second plus faible en face (mélange « écran »)
+      float breathe = 0.7 + 0.3 * sin(uTime * 0.35);
+      vec3 leak = uLeak * (smoothstep(1.25, 0.0, length((uv - vec2(1.0, 1.02)) * vec2(1.0, 1.4))) * breathe
+                         + 0.5 * smoothstep(0.9, 0.0, length(uv - vec2(-0.05, 0.25))) * (1.0 - breathe * 0.5));
+      col = 1.0 - (1.0 - col) * (1.0 - clamp(leak, 0.0, 1.0));
+      // givre qui gagne les bords de l'écran
+      if (uFrost > 0.0) {
+        vec2 fu = uv * vec2(uRes.x / uRes.y, 1.0);
+        // le voile dérive lentement
+        float fr = n2(fu * 7.0 + vec2(uTime * 0.03, -uTime * 0.02)) * 0.6 + n2(fu * 23.0 - uTime * 0.04) * 0.4;
+        // aiguilles de givre qui poussent depuis les bords et avancent / reculent doucement vers le centre
+        vec2 pc = c * vec2(uRes.x / uRes.y, 1.0);
+        float ang = atan(pc.y, pc.x), rad = length(pc);
+        float creep = sin(uTime * 0.22 + ang * 2.0) * 0.5 + 0.5;
+        float needles = pow(1.0 - abs(2.0 * n2(vec2(ang * 30.0, rad * 9.0 + fr * 2.0 + uTime * 0.08)) - 1.0), 9.0)
+                      + 0.6 * pow(1.0 - abs(2.0 * n2(vec2(ang * 80.0 + 4.0, rad * 16.0 + uTime * 0.12)) - 1.0), 12.0);
+        needles *= smoothstep(0.4, 0.75, n2(vec2(ang * 5.0 + uTime * 0.02, rad * 2.0) + 9.0));   // en touffes qui se déplacent
+        needles *= 0.75 + 0.25 * sin(uTime * 1.3 + ang * 11.0 + rad * 20.0);                     // lumière qui joue dans les cristaux
+        float m = smoothstep(0.5 + 0.06 * creep, 0.9 + 0.04 * creep, edge + (fr - 0.5) * 0.45) * uFrost;
+        float glint = step(0.996, h21(floor(fu * 160.0))) * (0.5 + 0.5 * sin(uTime * 3.0 + h21(floor(fu * 160.0) + 7.0) * 30.0));
+        col = mix(col, vec3(0.88, 0.94, 1.0), m * (0.25 + 0.4 * fr));
+        col += vec3(0.85, 0.95, 1.0) * (needles * 0.6 + glint) * m;
+      }
+      // vignette
+      col = mix(col, uVigColor, smoothstep(0.35, 0.95, edge) * uVignette);
+      // grain de film
+      if (uGrain > 0.0) col += (h21(uv * uRes + fract(uTime) * 91.7) - 0.5) * uGrain;
+      gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+    }`,
+});
+composer.addPass(gradePass);
+function sizeGrade() { gradePass.uniforms.uRes.value.set(innerWidth * renderer.getPixelRatio(), innerHeight * renderer.getPixelRatio()); }
+sizeGrade();
+
+// brume d'horizon : même fonction pour le ciel et le sol, pour qu'ils se fondent sans démarcation
+const HAZE_BAND = new THREE.Vector3(0.20, 0.16, 0.27);
+const HAZE_GLSL = `vec3 hazeColor(vec3 fogc, vec3 band, float elev){ return fogc + band * exp(-abs(elev) * 7.0); }`;
+
+// ciel : dégradé nocturne et halos colorés (presque toujours masqué par la brume du sol)
+const skyMat = new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false, fog: false,
+  uniforms: {
+    top: { value: new THREE.Color(0x0b0f1d) }, bot: { value: HORIZON }, band: { value: HAZE_BAND },
+    gA: { value: new THREE.Color(0x7a4a8c) }, gB: { value: new THREE.Color(0x2c7f8f) }, gC: { value: new THREE.Color(0xb8763c) },
+  },
+  vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `uniform vec3 top, bot, gA, gB, gC, band; varying vec3 vP;
+    ${HAZE_GLSL}
+    float glow(vec3 d, float p){ return pow(max(dot(vP, normalize(d)), 0.0), p); }
+    void main(){
+      float h = vP.y;
+      vec3 hz = hazeColor(bot, band, h);
+      vec3 c = mix(hz, top, smoothstep(0.0, 0.7, h));
+      float above = smoothstep(0.0, 0.18, h);
+      c += gA * glow(vec3(-1.0, 0.3, -0.6), 5.0) * 0.5 * above;
+      c += gB * glow(vec3(1.0, 0.2, 0.4), 5.0) * 0.45 * above;
+      c += gC * glow(vec3(0.32, 0.26, -1.0), 9.0) * 0.32 * above;
+
+      c += (fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5) / 255.0;
+      gl_FragColor = vec4(c, 1.0);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }`,
+});
+
+// lumières
+const hemi = new THREE.HemisphereLight(0xc9d3ff, 0x2a2438, 0.6);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xffeccf, 3.0);
+sun.position.set(-7, 14, 6);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -9, right: 9, top: 9, bottom: -9, near: 1, far: 40 });
+sun.shadow.bias = -0.0005;
+sun.shadow.normalBias = 0.02;
+scene.add(sun);
+const fill = new THREE.DirectionalLight(0x8fb4ff, 0.8);
+fill.position.set(8, 6, -8);
+scene.add(fill);
+
+// ---------------------------------------------------------------- l'espace des plateaux possibles
+// Le plateau joué se dresse sur un socle au milieu d'un pavage infini d'autres plateaux possibles,
+// tous produits par le même générateur. Ce pavage est rendu en raymarching volumétrique : une brume
+// dont la densité épouse le relief en colonnes de chaque plateau, et qui se perd dans le brouillard d'horizon.
+const FLOOR_Y = -3.4;
+const TILE_PITCH = 12;                  // un plateau 10×10 + une allée de brume
+const ATLAS_N = 8;                      // atlas de 8×8 = 64 plateaux distincts
+const FIELD_TOP = FLOOR_Y + 3.3;
+const MODES = G.TERRAIN_MODES.map(m => m[0]);
+const randSeed = () => (Math.random() * 2 ** 32) >>> 0;
+
+// sol sombre sous la brume, qui se fond dans l'horizon
+const floorMat = new THREE.ShaderMaterial({
+  uniforms: { base: { value: new THREE.Color(0x0a0c16) }, fogc: { value: HORIZON }, band: { value: HAZE_BAND } },
+  vertexShader: 'varying vec3 vWp; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vWp = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
+  fragmentShader: `uniform vec3 base, fogc, band; varying vec3 vWp;
+    ${HAZE_GLSL}
+    void main(){
+      vec3 dir = normalize(vWp - cameraPosition);
+      vec3 c = mix(base, hazeColor(fogc, band, dir.y), smoothstep(20.0, 68.0, length(vWp.xz - cameraPosition.xz)));
+      gl_FragColor = vec4(c, 1.0);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }`,
+});
+{
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(440, 440), new THREE.MeshBasicMaterial({ colorWrite: false }));
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = FLOOR_Y;
+  scene.add(floor);
+  const shadowCatcher = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.ShadowMaterial({ opacity: 0.4 }));
+  shadowCatcher.rotation.x = -Math.PI / 2;
+  shadowCatcher.position.y = FLOOR_Y + 0.005;
+  shadowCatcher.receiveShadow = true;
+  scene.add(shadowCatcher);
+}
+
+// atlas des hauteurs : 64 plateaux générés, entre lesquels chaque case du pavage glisse lentement
+const atlas = new THREE.DataTexture(new Uint8Array(ATLAS_N * 10 * ATLAS_N * 10 * 4), ATLAS_N * 10, ATLAS_N * 10, THREE.RGBAFormat);
+atlas.magFilter = atlas.minFilter = THREE.NearestFilter;
+function writeAtlas(slot, channel, h) {
+  const sx = (slot % ATLAS_N) * 10, sy = Math.floor(slot / ATLAS_N) * 10, W = ATLAS_N * 10;
+  for (let i = 0; i < 100; i++) atlas.image.data[((sy + G.cy(i)) * W + sx + G.cx(i)) * 4 + channel] = h[i];
+  atlas.needsUpdate = true;
+}
+for (let k = 0; k < ATLAS_N * ATLAS_N; k++) {
+  const h = G.generateTerrain(MODES[k % MODES.length], randSeed());
+  writeAtlas(k, 0, h);
+}
+
+const fieldMat = new THREE.ShaderMaterial({
+  depthTest: false, depthWrite: false,
+  uniforms: {
+    uProjInv: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uCamPos: { value: new THREE.Vector3() },
+    uFloor: { value: floorMat.uniforms.base.value },
+    uAtlas: { value: atlas }, uTime: { value: 0 }, uFade: { value: 0 },
+    fogc: { value: HORIZON }, band: { value: HAZE_BAND },
+    uLow: { value: new THREE.Color() }, uMid: { value: new THREE.Color() }, uHigh: { value: new THREE.Color() }, uEdge: { value: new THREE.Color() },
+    uBeam: { value: new THREE.Color(0) }, uBeamDir: { value: new THREE.Vector2(0.8, 0.6) }, uAlley: { value: new THREE.Color(0) },
+    uCaus: { value: 0 }, uSparkle: { value: 0 },
+  },
+  vertexShader: `uniform mat4 uProjInv, uCamWorld; varying vec3 vDir;
+    void main(){
+      vec4 v = uProjInv * vec4(position.xy, 1.0, 1.0);
+      vDir = (uCamWorld * vec4(v.xyz / v.w, 0.0)).xyz;
+      gl_Position = vec4(position.xy, 0.0, 1.0);
+    }`,
+  fragmentShader: `
+    uniform sampler2D uAtlas; uniform float uTime, uFade, uCaus, uSparkle; uniform vec3 fogc, band, uLow, uMid, uHigh, uEdge, uBeam, uAlley, uFloor, uCamPos; uniform vec2 uBeamDir;
+    varying vec3 vDir;
+    ${HAZE_GLSL}
+    const float FLOOR = ${FLOOR_Y.toFixed(2)}, TOP = ${FIELD_TOP.toFixed(2)}, PITCH = ${TILE_PITCH.toFixed(1)}, AN = ${ATLAS_N.toFixed(1)};
+    float hash2(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    float hash3(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+    float noise3(vec3 x){
+      vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+      return mix(mix(mix(hash3(i), hash3(i + vec3(1, 0, 0)), f.x), mix(hash3(i + vec3(0, 1, 0)), hash3(i + vec3(1, 1, 0)), f.x), f.y),
+                 mix(mix(hash3(i + vec3(0, 0, 1)), hash3(i + vec3(1, 0, 1)), f.x), mix(hash3(i + vec3(0, 1, 1)), hash3(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+    }
+    const float PERIOD = 10.0, HOLD = 0.2;   // transition de 8 s (inchangée), pause réduite de 8 s à 2 s
+    vec4 cKey = vec4(-9999.0);
+    float cH = 0.0;
+    float heightAt(float slot, vec2 cell){
+      vec2 so = vec2(mod(slot, AN), floor(slot / AN)) * 10.0;
+      return texture2D(uAtlas, (so + cell + 0.5) / (AN * 10.0)).r * 255.0;
+    }
+    // relief au point xz : hauteur du sommet de colonne (monde), masque du plateau, proximité d'une arête de case
+    vec3 field(vec2 xz){
+      vec2 tile = floor(xz / PITCH + 0.5);
+      if (tile == vec2(0.0)) return vec3(FLOOR, 0.0, 0.0);              // emplacement du socle
+      vec2 lp = xz - tile * PITCH;
+      vec2 g = vec2(lp.x + 5.0, 5.0 - lp.y);
+      float mask = smoothstep(-1.0, 0.9, min(min(g.x, g.y), min(10.0 - g.x, 10.0 - g.y)));
+      vec2 cell = clamp(floor(g), 0.0, 9.0);
+      vec4 key = vec4(tile, cell);
+      if (key != cKey) {                     // le rayon reste souvent dans la même case : on garde la hauteur
+        cKey = key;
+        // chaque plateau a son propre cycle : il garde un monde un moment, puis glisse vers le suivant
+        float cyc = uTime / PERIOD + hash2(tile + 7.31);
+        float ep = floor(cyc), fr = fract(cyc);
+        float hA = heightAt(floor(hash2(tile + ep * 13.17) * AN * AN), cell);
+        float t = 0.0;
+        float prog = max(fr - HOLD, 0.0) / (1.0 - HOLD) * 1.3;
+        if (prog > 0.0) {
+          float hB = heightAt(floor(hash2(tile + (ep + 1.0) * 13.17) * AN * AN), cell);
+          t = clamp((prog - (cell.x + cell.y) / 18.0 * 0.7) / 0.6, 0.0, 1.0);
+          hA = mix(hA, hB, t * t * (3.0 - 2.0 * t));
+        }
+        cH = hA;
+      }
+      float h = cH;
+      vec2 e = abs(fract(g) - 0.5);
+      return vec3(FLOOR + (h + 1.0) * 0.3, mask, smoothstep(0.38, 0.5, max(e.x, e.y)));
+    }
+    void main(){
+      vec3 ro = uCamPos, rd = normalize(vDir);
+      // couleur du sol sous la brume (fondu dans l'horizon), visible là où la brume est transparente
+      float tf = (FLOOR - ro.y) / min(rd.y, -1e-4);
+      vec3 floorCol = mix(uFloor, hazeColor(fogc, band, rd.y), smoothstep(20.0, 68.0, tf * length(rd.xz)));
+      // intersection avec la tranche FLOOR..TOP
+      float ta = (TOP - ro.y) / rd.y, tb = (FLOOR - ro.y) / rd.y;
+      // la caméra est bridée (inclinaison ≤ 54°) : les rayons traversent la tranche en pente raide,
+      // sur une douzaine d'unités au plus, donc une trentaine de pas suffisent
+      float t0 = max(min(ta, tb), 0.0), t1 = min(max(ta, tb), t0 + 16.0);
+      if (t1 <= t0) { gl_FragColor = vec4(floorCol, 1.0); return; }
+      const int STEPS = 30;
+      float dt = (t1 - t0) / float(STEPS);
+      float t = t0 + dt * fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+      vec3 acc = vec3(0.0);
+      float T = 1.0;
+      for (int i = 0; i < STEPS; i++){
+        vec3 p = ro + rd * t;
+        if (max(abs(p.x), abs(p.z)) < 5.6) break;                              // le rayon bute sur le socle
+        float dist = length(p.xz - ro.xz);
+        if (dist > 70.0) break;                                                // au-delà, tout est brume
+        vec3 f = field(p.xz);
+        float H = f.x, dy = p.y - H;
+        if (dy > 0.5 && p.y - FLOOR > 2.2) { t += dt; continue; }             // air vide au-dessus du relief : pas de bruit
+        vec3 q = p * vec3(0.45, 0.8, 0.45) + vec3(uTime * 0.04, -uTime * 0.05, uTime * 0.02);
+        float n = noise3(q);
+        n = dist < 30.0 ? n * 0.65 + noise3(q * 2.3 + 4.7) * 0.35 : n;        // 2e octave seulement de près
+        float body = smoothstep(0.12, -0.25, dy + (n - 0.5) * 0.35) * f.y;      // colonnes de brume
+        float hint = exp(-abs(dy) * 8.0) * f.z * f.y * 0.8 * (1.0 - smoothstep(18.0, 45.0, t));   // arêtes des cases (estompées au loin)
+        float ground = exp(-(p.y - FLOOR) * 1.3) * (0.25 + 0.75 * smoothstep(0.35, 0.8, n)) * 0.35;   // brume rampante (comble les allées)
+        float dens = (body * (0.3 + 0.8 * n) + hint + ground) * (1.0 - smoothstep(42.0, 70.0, dist));   // distance de vue réduite, sans coupure
+        if (dens > 0.002) {
+          float k = clamp((H - FLOOR - 0.3) / 2.4, 0.0, 1.0);
+          vec3 col = mix(uLow, uMid, smoothstep(0.0, 0.5, k));
+          col = mix(col, uHigh, smoothstep(0.55, 1.0, k));
+          col *= 0.55 + 0.9 * clamp(0.55 + dy * 0.9 + (n - 0.5) * 0.4, 0.0, 1.0);
+          col += uEdge * hint * 0.5;
+          if (uCaus > 0.0) {                                                     // reflets ondulants (caustiques)
+            float cs = (0.5 + 0.5 * sin(p.x * 2.1 + sin(p.z * 1.7 + uTime * 0.6) * 1.6)) * (0.5 + 0.5 * sin(p.z * 2.3 + sin(p.x * 1.3 - uTime * 0.5) * 1.6));
+            col += uHigh * pow(cs, 3.0) * uCaus * exp(-abs(dy) * 4.0);
+          }
+          if (uSparkle > 0.0) {                                                  // paillettes de givre qui scintillent
+            float hs = hash3(floor(p * 7.0));
+            col += vec3(1.0) * step(0.992, hs) * (0.5 + 0.5 * sin(uTime * 2.5 + hs * 60.0)) * exp(-abs(dy) * 6.0) * uSparkle;
+          }
+          col = mix(col, hazeColor(fogc, band, rd.y), smoothstep(22.0, 66.0, dist));   // perspective atmosphérique
+          float a = 1.0 - exp(-dens * dt * 1.5);
+          acc += T * a * col;
+          T *= 1.0 - a;
+          if (T < 0.03) break;
+        }
+        float fadeD = 1.0 - smoothstep(30.0, 60.0, dist);
+        if (uAlley.r + uAlley.g + uAlley.b > 0.0) {                              // braises : lueurs diffuses qui couvent sous la brume
+          float ember = smoothstep(0.55, 0.9, noise3(vec3(p.xz * 0.11, uTime * 0.06)));
+          acc += T * uAlley * ember * exp(-(p.y - FLOOR) * 2.0) * (0.6 + 0.8 * n) * dt * 0.3 * fadeD;
+        }
+        if (uBeam.r + uBeam.g + uBeam.b > 0.0) {                                 // halos de lumière chaude qui dérivent lentement
+          float pool = smoothstep(0.5, 0.85, noise3(vec3(p.xz * 0.06 + uBeamDir * uTime * 0.04, uTime * 0.02)));
+          acc += T * uBeam * pool * exp(-max(dy, 0.0) * 1.5) * dt * 0.06 * fadeD;
+        }
+        t += dt;
+      }
+      float a = (1.0 - T) * uFade;
+      gl_FragColor = vec4(acc * uFade + floorCol * (1.0 - a), 1.0);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }`,
+});
+// le pavage est rendu à part, en demi-résolution, puis sert de fond à la scène (il est très flou de toute façon)
+const fieldScene = new THREE.Scene();
+const fieldRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
+{
+  const tri = new THREE.BufferGeometry();
+  tri.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3));
+  const quad = new THREE.Mesh(tri, fieldMat);
+  quad.frustumCulled = false;
+  fieldScene.add(quad);
+}
+// flou de profondeur du décor : le pavage (demi-résolution) est réduit au quart avec un filtre doux.
+// Bien moins cher qu'une vraie profondeur de champ, et le plateau, au premier plan, reste net.
+const blurRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
+const blurScene = new THREE.Scene();
+const blurMat = new THREE.ShaderMaterial({
+  depthTest: false, depthWrite: false,
+  uniforms: { tSrc: { value: fieldRT.texture }, uTexel: { value: new THREE.Vector2() } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = position.xy * 0.5 + 0.5; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+  fragmentShader: `uniform sampler2D tSrc; uniform vec2 uTexel; varying vec2 vUv;
+    void main(){
+      vec2 o = uTexel * 1.5;
+      vec3 c = texture2D(tSrc, vUv + vec2(-o.x, -o.y)).rgb + texture2D(tSrc, vUv + vec2(o.x, -o.y)).rgb
+             + texture2D(tSrc, vUv + vec2(-o.x, o.y)).rgb + texture2D(tSrc, vUv + vec2(o.x, o.y)).rgb;
+      gl_FragColor = vec4(c * 0.25, 1.0);
+    }`,
+});
+{
+  const tri = new THREE.BufferGeometry();
+  tri.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3));
+  const q = new THREE.Mesh(tri, blurMat);
+  q.frustumCulled = false;
+  blurScene.add(q);
+  scene.background = blurRT.texture;
+}
+function sizeFieldRT() {
+  const pr = renderer.getPixelRatio();
+  const w = Math.max(1, Math.round(innerWidth * pr * 0.5)), h = Math.max(1, Math.round(innerHeight * pr * 0.5));
+  fieldRT.setSize(w, h);
+  blurRT.setSize(Math.max(1, w >> 1), Math.max(1, h >> 1));
+  blurMat.uniforms.uTexel.value.set(1 / w, 1 / h);
+}
+sizeFieldRT();
+function renderField() {
+  const u = fieldMat.uniforms;
+  camera.updateMatrixWorld();
+  u.uProjInv.value.copy(camera.projectionMatrixInverse);
+  u.uCamWorld.value.copy(camera.matrixWorld);
+  u.uCamPos.value.setFromMatrixPosition(camera.matrixWorld);
+  renderer.setRenderTarget(fieldRT);
+  renderer.render(fieldScene, camera);
+  renderer.setRenderTarget(blurRT);
+  renderer.render(blurScene, camera);
+  renderer.setRenderTarget(null);
+}
+
+// socle : le plateau joué s'élève au-dessus de la brume des autres mondes
+// ---------------------------------------------------------------- surfaces procédurales
+// Motif calculé dans le fragment shader à partir de la position monde : aucune texture à charger.
+// 0 mat · 1 bois · 2 pierre · 3 glace · 4 céramique · 5 sable · 6 planche (fil droit, pour les grandes surfaces)
+// 7 ardoise + craie · 8 marbre veiné d'or · 9 néon (arêtes lumineuses) · 10 paysage (herbe, roche, neige, terre)
+const SURFACES = { matte: 0, wood: 1, stone: 2, ice: 3, ceramic: 4, sand: 5, plank: 6, slate: 7, marble: 8, neon: 9, landscape: 10 };
+const SURFACE_GLSL = `
+  uniform int uSurface;
+  uniform float uSurfTime;
+  uniform float uGlowAmt;
+  uniform float uMistAmt;
+  uniform vec3 uMistCol;
+  varying vec3 vSurfP;
+  varying vec3 vSurfN;
+  float gPits = 0.0, gGold = 0.0;
+  // distance au bord de la case (les cases sont centrées sur des demi-entiers)
+  float cellEdge(vec3 p){ vec2 f = fract(p.xz); return min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y)); }
+  float sHash(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+  float sNoise(vec3 x){
+    vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(mix(sHash(i), sHash(i + vec3(1, 0, 0)), f.x), mix(sHash(i + vec3(0, 1, 0)), sHash(i + vec3(1, 1, 0)), f.x), f.y),
+               mix(mix(sHash(i + vec3(0, 0, 1)), sHash(i + vec3(1, 0, 1)), f.x), mix(sHash(i + vec3(0, 1, 1)), sHash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+  }
+  vec3 surfaceTint(vec3 base, inout float rough){
+    vec3 p = vSurfP;
+    if (uSurface == 1) {                       // bois : cernes et fibres, sens du fil alterné d'un bloc à l'autre
+      float h = sHash(vec3(floor(p.x + 0.5), floor(p.y / ${LEVEL.toFixed(2)}), floor(p.z + 0.5)));
+      vec3 q = h > 0.5 ? p : p.zyx;
+      float ring = length(vec2(q.z, q.y * 2.6) + h * 17.0) * 4.5 + sNoise(q * vec3(0.7, 3.0, 3.0)) * 1.8;
+      float g = smoothstep(0.05, 0.5, abs(fract(ring) - 0.5));
+      float fib = sNoise(q * vec3(1.2, 36.0, 36.0));
+      base *= mix(0.8, 1.05, g) * (0.94 + 0.1 * fib);
+      rough = mix(rough * 0.75, rough, g);
+    } else if (uSurface == 2) {                // pierre volcanique : marbrures irrégulières, grain et petites alvéoles
+      vec3 w = vec3(sNoise(p * 1.6), sNoise(p * 1.6 + 5.2), sNoise(p * 1.6 + 9.1));
+      float m = sNoise(p * 3.1 + w * 1.6) * 0.6 + sNoise(p * 7.3 + w) * 0.3 + sNoise(p * 19.0) * 0.1;
+      float pits = smoothstep(0.8, 0.92, sNoise(p * 27.0 + w * 2.0));
+      base *= (0.8 + 0.32 * m) * (1.0 - 0.3 * pits);
+      gPits = smoothstep(0.82, 0.97, sNoise(p * 4.2 + 11.0 + w * 0.8));    // foyers : pierre calcinée qui couve
+      base *= 1.0 - 0.6 * gPits;
+      rough = mix(rough, 1.0, pits);
+    } else if (uSurface == 3) {                // glace : marbrures bleutées, poli irrégulier
+      float n1 = sNoise(p * 4.5);
+      base = mix(base, base * vec3(0.84, 0.93, 1.1), 0.6 * n1) * (0.95 + 0.1 * sNoise(p * 16.0));
+      rough = 0.12 + 0.3 * n1;
+    } else if (uSurface == 4) {                // céramique : émail satiné légèrement nuancé
+      base *= 0.95 + 0.09 * sNoise(p * 2.8);
+    } else if (uSurface == 6) {                // planche : fil droit et fibres, sans cernes (évite les grands arcs sur le socle)
+      vec3 q = p * vec3(0.25, 9.0, 9.0);
+      float grain = sNoise(q + vec3(0.0, sNoise(p * 0.6) * 3.0, 0.0)) * 0.7 + sNoise(q * vec3(2.0, 3.5, 3.5)) * 0.3;
+      base *= 0.82 + 0.26 * grain;
+    } else if (uSurface == 7) {                // ardoise : feuilletage fin, traces de craie et trait de craie sur le pourtour des cases
+      base *= 0.9 + 0.12 * sNoise(vec3(p.x * 2.0, p.y * 45.0, p.z * 2.0)) + 0.05 * sNoise(p * 20.0);
+      base = mix(base, base * 1.3 + 0.03, smoothstep(0.62, 0.9, sNoise(p * 1.4)) * 0.35);
+      // trait de craie sur la partie plate du dessus seulement (pas sur les arrondis ni sur le socle)
+      float flatTop = step(0.97, vSurfN.y) * uGlowAmt;
+      float d = cellEdge(p);
+      float line = smoothstep(0.065, 0.08, d) * smoothstep(0.115, 0.095, d) * flatTop;
+      float broken = smoothstep(0.3, 0.55, sNoise(p * 7.0)) * (0.65 + 0.35 * sNoise(p * 35.0));
+      base = mix(base, vec3(0.86, 0.88, 0.82), line * broken * 0.85);
+      rough = 0.9;
+    } else if (uSurface == 8) {                // marbre : veines sinueuses, filets d'or, poli miroir
+      float t = p.x * 1.1 + p.z * 0.6 + p.y * 0.8 + (sNoise(p * 1.4) + sNoise(p * 2.9) * 0.5 + sNoise(p * 6.1) * 0.25) * 2.6;
+      float vein = pow(smoothstep(0.7, 1.0, 1.0 - abs(sin(t * 1.2))), 2.0);
+      float lum = dot(base, vec3(0.299, 0.587, 0.114));
+      base *= 0.92 + 0.12 * sNoise(p * 2.2);                                   // nuages laiteux du marbre
+      base = mix(base, lum > 0.35 ? base * 0.5 : base * 2.0 + 0.06, vein * 0.55);
+      gGold = smoothstep(0.965, 1.0, 1.0 - abs(sin(t * 0.63 + 2.0))) * smoothstep(0.45, 0.6, sNoise(p * 0.7 + 3.0)) * mix(0.35, 1.0, uGlowAmt);   // plus discret sur le socle
+      base = mix(base, vec3(0.83, 0.62, 0.24), gGold);
+      rough = mix(0.16, 0.3, vein);
+    } else if (uSurface == 9) {                // néon : surface sombre et lustrée (les arêtes s'allument dans surfaceGlow)
+      base *= 0.85 + 0.15 * sNoise(p * 3.0);
+      rough = 0.22;
+    } else if (uSurface == 10) {               // paysage : le dessus change de matière avec l'altitude, les flancs sont en terre
+      float top = step(0.5, vSurfN.y);
+      float lvl = p.y / ${LEVEL.toFixed(2)} - 1.0;                         // hauteur de la case (sur le dessus)
+      if (top > 0.5) {
+        float grass = 1.0 - smoothstep(3.0, 4.5, lvl);
+        float snow = smoothstep(6.0, 7.0, lvl);
+        float rock = (1.0 - grass) * (1.0 - snow);
+        // herbe : touffes plus sombres et brins fins
+        float g = (0.82 + 0.2 * sNoise(p * vec3(42.0, 3.0, 42.0))) * (0.9 + 0.16 * sNoise(p * 3.2));
+        // roche : grain et mouchetures
+        float r = (0.85 + 0.2 * sNoise(p * 9.0)) * (0.93 + 0.1 * sNoise(p * 30.0));
+        // neige : presque lisse, légèrement bleutée dans les creux
+        float n = 0.96 + 0.06 * sNoise(p * 6.0);
+        base *= g * grass + r * rock + n * snow;
+        rough = mix(rough, 0.55, snow);
+      } else {
+        // flancs : terre striée et petits cailloux
+        base *= 0.86 + 0.18 * sNoise(vec3(p.x * 6.0, p.y * 30.0, p.z * 6.0));
+        base = mix(base, base * 1.35 + 0.02, step(0.86, sNoise(p * 14.0)) * 0.6);
+      }
+    } else if (uSurface == 5) {                // sable : grain fin
+      base *= 0.9 + 0.13 * sNoise(p * 34.0) + 0.05 * sNoise(p * 4.0);
+    }
+    return base;
+  }
+  // lumière propre à chaque matière : reflets de la glace, alvéoles qui rougeoient, caustiques, lumière tamisée
+  vec3 surfaceGlow(vec3 n, vec3 v){
+    vec3 p = vSurfP;
+    float top = step(0.5, vSurfN.y);
+    if (uSurface == 3) {                        // glace : reflet sur les arêtes rasantes + éclats qui scintillent
+      float fres = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 3.0);
+      vec3 gc = floor(p * 22.0);
+      float tw = step(0.992, sHash(gc)) * pow(0.5 + 0.5 * sin(uSurfTime * 2.5 + sHash(gc + 3.1) * 40.0), 4.0);
+      return vec3(0.45, 0.68, 1.0) * fres * 0.28 + vec3(1.0) * tw * 1.4 * top;
+    }
+    if (uSurface == 2) {                        // braise : quelques foyers rougeoyants qui palpitent dans la pierre
+      float pulse = 0.5 + 0.5 * sin(uSurfTime * 1.6 + sNoise(p * 1.3) * 9.0);
+      return vec3(1.0, 0.2, 0.02) * gPits * gPits * (0.35 + 0.65 * pulse) * 1.3 * uGlowAmt;
+    }
+    if (uSurface == 5) {                        // lagon : caustiques qui ondulent sur le dessus des cases
+      float cs = (0.5 + 0.5 * sin(p.x * 3.1 + sin(p.z * 2.3 + uSurfTime * 0.9) * 1.6)) * (0.5 + 0.5 * sin(p.z * 3.4 + sin(p.x * 2.1 - uSurfTime * 0.8) * 1.6));
+      return vec3(0.45, 0.95, 0.9) * pow(cs, 4.0) * 0.4 * top;
+    }
+    if (uSurface == 10) {                       // paysage : la neige des sommets scintille doucement
+      float lvl = p.y / ${LEVEL.toFixed(2)} - 1.0;
+      vec3 gc = floor(p * 26.0);
+      float tw = step(0.994, sHash(gc)) * pow(0.5 + 0.5 * sin(uSurfTime * 2.0 + sHash(gc + 5.0) * 40.0), 4.0);
+      return vec3(1.0, 0.92, 0.85) * tw * smoothstep(6.0, 7.0, lvl) * top * 1.2 * uGlowAmt;
+    }
+    if (uSurface == 8) {                        // marbre : les filets d'or accrochent la lumière
+      return vec3(1.0, 0.72, 0.3) * gGold * 0.35 * uGlowAmt;
+    }
+    if (uSurface == 9) {                        // néon : pourtour des cases et joints des couches, du cyan (bas) au magenta (haut)
+      // le liseré est tracé sur la partie plate du dessus, juste à l'intérieur de l'arrondi :
+      // sur l'arrondi lui-même, la normale varie et le trait n'apparaissait que sous certains angles
+      float top = step(0.5, vSurfN.y);
+      float d = cellEdge(p);
+      float rim = smoothstep(0.05, 0.062, d) * smoothstep(0.1, 0.085, d) * step(0.9, vSurfN.y)
+                + smoothstep(0.06, 0.02, d) * top * 0.5;
+      float fy = fract(p.y / ${LEVEL.toFixed(2)});
+      vec2 side = abs(vSurfN.x) > 0.5 ? vec2(p.z, 0.0) : vec2(p.x, 0.0);
+      float joint = smoothstep(0.07, 0.02, min(fy, 1.0 - fy)) * (1.0 - top) * 0.5;
+      float corner = smoothstep(0.04, 0.012, min(fract(side.x), 1.0 - fract(side.x))) * (1.0 - top);
+      vec3 hue = mix(vec3(0.15, 0.95, 1.0), vec3(1.0, 0.2, 0.85), clamp(p.y / 2.7, 0.0, 1.0));
+      // respiration très lente et discrète : les contours restent stables pour la lisibilité
+      float pulse = 0.8 + 0.2 * sin(uSurfTime * 0.45 - length(p.xz) * 0.25);
+      return hue * (rim + joint * 0.6 + corner * 0.6) * pulse * 1.0 * uGlowAmt;
+    }
+    if (uSurface == 4) {                        // aube : lumière tamisée qui glisse sur le plateau
+      float d = smoothstep(0.5, 0.8, sNoise(vec3(p.xz * 0.45, uSurfTime * 0.12)));
+      return vec3(1.0, 0.72, 0.5) * d * 0.14 * top;
+    }
+    return vec3(0.0);
+  }
+`;
+const surfTime = { value: 0 };
+function withSurface(material, uniforms) {
+  material.onBeforeCompile = sh => {
+    sh.uniforms.uSurface = uniforms.uSurface;
+    sh.uniforms.uSurfTime = surfTime;
+    sh.uniforms.uGlowAmt = uniforms.uGlowAmt || { value: 1 };
+    sh.uniforms.uMistAmt = uniforms.uMistAmt || { value: 0 };
+    sh.uniforms.uMistCol = uniforms.uMistCol || { value: new THREE.Color() };
+    // motif ancré sur la position de repos de chaque bloc (aRest) : il ne glisse pas pendant l'animation d'apparition
+    sh.vertexShader = 'varying vec3 vSurfP;\nvarying vec3 vSurfN;\n#ifdef USE_INSTANCING\nattribute vec3 aRest;\n#endif\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+      vSurfN = objectNormal;
+      #ifdef USE_INSTANCING
+        vSurfP = aRest + transformed;
+      #else
+        vSurfP = (modelMatrix * vec4(transformed, 1.0)).xyz;
+      #endif`);
+    sh.fragmentShader = SURFACE_GLSL + sh.fragmentShader
+      .replace('#include <color_fragment>', '#include <color_fragment>\n  float surfRough = roughness;\n  diffuseColor.rgb = surfaceTint(diffuseColor.rgb, surfRough);')
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = surfRough;')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n  totalEmissiveRadiance += surfaceGlow(normal, normalize(vViewPosition));')
+      // pied du socle noyé dans la brume du pavage
+      .replace('#include <fog_fragment>', `#include <fog_fragment>
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, uMistCol, uMistAmt * smoothstep(${(FLOOR_Y + 2.6).toFixed(2)}, ${FLOOR_Y.toFixed(2)}, vSurfP.y));`);
+  };
+  return material;
+}
+const terrainSurface = { uSurface: { value: 0 } }, plinthSurface = { uSurface: { value: 0 }, uGlowAmt: { value: 0 }, uMistAmt: { value: 0.85 }, uMistCol: { value: fieldMat.uniforms.uLow.value } };
+const terrainMat = withSurface(new THREE.MeshStandardMaterial({ roughness: 0.8, metalness: 0, envMapIntensity: 0.2 }), terrainSurface);
+
+const plinth = new THREE.Mesh(new RoundedBoxGeometry(11.2, -FLOOR_Y, 11.2, 4, 0.2), withSurface(new THREE.MeshStandardMaterial({ color: 0x23242f, roughness: 0.45, metalness: 0.35 }), plinthSurface));
+plinth.position.y = FLOOR_Y / 2;
+plinth.receiveShadow = plinth.castShadow = true;
+scene.add(plinth);
+
+for (let o = 0; o < 2; o++) {
+  // bande d'arrivée : celle du Rouge est au fond (rangée 10), celle du Bleu devant
+  const strip = new THREE.Mesh(new THREE.BoxGeometry(10, 0.05, 0.18),
+    new THREE.MeshStandardMaterial({ color: TEAM[o].main, emissive: TEAM[o].main, emissiveIntensity: 0.7, roughness: 0.4 }));
+  strip.position.set(0, 0.02, o === 0 ? -5.32 : 5.32);
+  scene.add(strip);
+}
+
+// particules : une poussière d'ambiance et un second système (étincelles, lucioles, flocons…) selon le thème.
+// Tout est animé dans le vertex shader ; chaque point a une valeur aléatoire (taille, phase, vitesse).
+const ambient = {};
+const dotTex = (() => {
+  const dot = document.createElement('canvas');
+  dot.width = dot.height = 32;
+  const dc = dot.getContext('2d'), grd = dc.createRadialGradient(16, 16, 0, 16, 16, 16);
+  grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(0.35, 'rgba(255,255,255,.55)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+  dc.fillStyle = grd; dc.fillRect(0, 0, 32, 32);
+  return new THREE.CanvasTexture(dot);
+})();
+function makeParticles(n, rMin, rMax, seed) {
+  const rng = G.mulberry32(seed);
+  const dp = new Float32Array(n * 3), rnd = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = rng() * Math.PI * 2, r = rMin + rng() * (rMax - rMin);
+    dp.set([Math.cos(a) * r, FLOOR_Y + rng() * 20, Math.sin(a) * r], i * 3);
+    rnd[i] = rng();
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(dp, 3));
+  g.setAttribute('aRnd', new THREE.BufferAttribute(rnd, 1));
+  const u = { uSpeed: { value: 0.25 }, uSway: { value: 0 }, uSizeVar: { value: 0 }, uFlicker: { value: 0 }, uSpeedVar: { value: 0 } };
+  const mat = new THREE.PointsMaterial({ size: 0.16, map: dotTex, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false });
+  mat.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, u, { uTime: ambient.time });
+    sh.vertexShader = 'uniform float uTime, uSpeed, uSway, uSizeVar, uFlicker, uSpeedVar;\nattribute float aRnd;\nvarying float vFlick;\n' + sh.vertexShader
+      .replace('#include <begin_vertex>', `vec3 transformed = position;
+        float spd = uSpeed * mix(1.0, 0.5 + aRnd, uSpeedVar);
+        transformed.y = ${FLOOR_Y.toFixed(2)} + mod(position.y - ${FLOOR_Y.toFixed(2)} + uTime * spd, 20.0);
+        transformed.xz += vec2(sin(uTime * 0.7 + aRnd * 6.28 + position.z), cos(uTime * 0.6 + aRnd * 4.0 + position.x)) * uSway;
+        vFlick = mix(1.0, pow(0.5 + 0.5 * sin(uTime * (2.0 + aRnd * 5.0) + aRnd * 40.0), 2.0), uFlicker);`)
+      .replace('gl_PointSize = size;', 'gl_PointSize = size * mix(1.0, 0.35 + 1.3 * aRnd, uSizeVar);');
+    sh.fragmentShader = 'varying float vFlick;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.a *= vFlick;');
+  };
+  const pts = new THREE.Points(g, mat);
+  pts.frustumCulled = false;
+  pts.renderOrder = 2;
+  scene.add(pts);
+  return { pts, mat, u };
+}
+ambient.time = { value: 0 };
+ambient.dust = makeParticles(700, 4, 44, 1234);
+ambient.extra = makeParticles(260, 3, 26, 777);
+function configParticles(sys, cfg) {
+  sys.pts.visible = !!cfg;
+  if (!cfg) return;
+  sys.mat.color.set(cfg.color);
+  sys.mat.size = cfg.size ?? 0.16;
+  sys.mat.opacity = cfg.opacity ?? 0.7;
+  sys.u.uSpeed.value = cfg.speed ?? 0.25;
+  sys.u.uSway.value = cfg.sway ?? 0;
+  sys.u.uSizeVar.value = cfg.sizeVar ?? 0.6;
+  sys.u.uFlicker.value = cfg.flicker ?? 0;
+  sys.u.uSpeedVar.value = cfg.speedVar ?? 0.5;
+}
+
+function updateAmbient(t, dt) {
+  fieldMat.uniforms.uTime.value = t;
+  fieldMat.uniforms.uFade.value = Math.min(1, fieldMat.uniforms.uFade.value + dt * 0.5);
+  ambient.time.value = t;
+  gradePass.uniforms.uTime.value = t;
+  surfTime.value = t;
+  // lumière qui vacille (feu) pour les thèmes qui le demandent
+  const fl = theme.flicker || 0;
+  if (fl) {
+    const k = 1 + fl * (Math.sin(t * 7.3) * 0.5 + Math.sin(t * 13.1 + 1.7) * 0.3 + Math.sin(t * 3.1) * 0.4);
+    fill.intensity = 0.8 * k;
+    hemi.intensity = 0.6 * (1 + (k - 1) * 0.5);
+  }
+}
+
+// ---------------------------------------------------------------- matérialisation du plateau
+let riseAnim = null;
+function riseTerrain(h) {
+  const items = [];
+  let n = 0;
+  for (let i = 0; i < 100; i++) {
+    const [x, z] = cellXZ(i);
+    const d = Math.hypot(x, z) * 0.075 + Math.random() * 0.08;
+    for (let k = 0; k <= h[i]; k++) items.push({ n: n++, x, z, k, d: d + k * 0.035 });
+  }
+  riseAnim = { t: 0, items, end: Math.max(...items.map(it => it.d)) + 0.6 };
+  stepRise(0);
+}
+const _rm = new THREE.Matrix4(), _rs = new THREE.Vector3(), _rp = new THREE.Vector3(), _rq = new THREE.Quaternion();
+function stepRise(dt) {
+  if (!riseAnim) return;
+  riseAnim.t += dt;
+  for (const it of riseAnim.items) {
+    const e = Math.min(1, Math.max(0, (riseAnim.t - it.d) / 0.55));
+    const b = 1 - Math.pow(1 - e, 3);
+    _rm.compose(_rp.set(it.x, ((it.k + 0.5) * LEVEL) * b - (1 - b) * 0.2, it.z), _rq, _rs.set(1, Math.max(b, 0.001), 1));
+    terrainMesh.setMatrixAt(it.n, _rm);
+  }
+  terrainMesh.instanceMatrix.needsUpdate = true;
+  if (riseAnim.t >= riseAnim.end) { riseAnim = null; terrainMesh.boundingSphere = null; }
+}
+
+function dropPieces(delay0 = 0.75) {
+  state.pieces.forEach((p, pi) => {
+    const g = pieceObjs[pi].grp, target = g.position.y;
+    const d = delay0 + (pi % 6) * 0.07 + p.o * 0.2, dur = d + 0.6;
+    g.position.y = target + 7;
+    tween(dur, k => {
+      const e = Math.min(1, Math.max(0, (k * dur - d) / 0.6));
+      g.position.y = target + 7 * (1 - e * e * (3 - 2 * e));
+    }).then(() => { g.position.y = target; });
+  });
+}
+
+// ================================================================ terrain
+let theme = THEMES[0];
+const paletteFor = mode => (theme.modes && theme.modes[mode]) || theme.terrain;
+const terrainGroup = new THREE.Group();
+scene.add(terrainGroup);
+let terrainMesh = null, instToCell = [], heightLabels = null;
+
+let terrainState = null;
+// couleurs des couches du terrain selon le thème (même ordre d'instances que buildTerrain)
+function colorTerrain() {
+  if (!terrainMesh || !terrainState) return;
+  const { h, mode } = terrainState, pal = paletteFor(mode);
+  const c = new THREE.Color(), rng = G.mulberry32(h.reduce((a, b) => a * 31 + b, 7) >>> 0);
+  let n = 0;
+  for (let i = 0; i < 100; i++)
+    for (let k = 0; k <= h[i]; k++) {
+      if (k === h[i]) c.set(pal.top[Math.min(h[i], pal.top.length - 1)]).offsetHSL((rng() - 0.5) * 0.02, 0, (rng() - 0.5) * 0.04);
+      else c.set(pal.strata[Math.min(k, pal.strata.length - 1)]).offsetHSL(0, 0, (k % 2) * 0.035 - (rng() * 0.02));
+      terrainMesh.setColorAt(n++, c);
+    }
+  terrainMesh.instanceColor.needsUpdate = true;
+}
+
+function buildTerrain(h, mode) {
+  terrainGroup.clear();
+  if (terrainMesh) terrainMesh.geometry.dispose();
+  terrainState = { h, mode };
+  let count = 0;
+  for (const v of h) count += v + 1;
+  const geo = new RoundedBoxGeometry(0.97, LEVEL, 0.97, 2, 0.04);
+  terrainMesh = new THREE.InstancedMesh(geo, terrainMat, count);
+  instToCell = [];
+  const m = new THREE.Matrix4(), rest = new Float32Array(count * 3);
+  let n = 0;
+  for (let i = 0; i < 100; i++) {
+    const [x, z] = cellXZ(i);
+    for (let k = 0; k <= h[i]; k++) {
+      m.makeTranslation(x, (k + 0.5) * LEVEL, z);
+      terrainMesh.setMatrixAt(n, m);
+      rest.set([x, (k + 0.5) * LEVEL, z], n * 3);
+      instToCell[n++] = i;
+    }
+  }
+  geo.setAttribute('aRest', new THREE.InstancedBufferAttribute(rest, 3));
+  colorTerrain();
+  terrainMesh.castShadow = terrainMesh.receiveShadow = true;
+  terrainGroup.add(terrainMesh);
+
+  heightLabels = new THREE.Group();
+  heightLabels.visible = showHeights;
+  for (let i = 0; i < 100; i++) {
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.3), new THREE.MeshBasicMaterial({ map: numberTexture(h[i]), transparent: true, depthWrite: false }));
+    const [x, z] = cellXZ(i);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(x - 0.31, topY(h[i]) + 0.012, z + 0.31);
+    heightLabels.add(mesh);
+  }
+  terrainGroup.add(heightLabels);
+}
+
+const numTexCache = {};
+function numberTexture(n) {
+  if (numTexCache[n]) return numTexCache[n];
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 64;
+  const g = cv.getContext('2d');
+  g.fillStyle = 'rgba(15,18,25,.55)';
+  g.beginPath(); g.arc(32, 32, 28, 0, Math.PI * 2); g.fill();
+  g.font = 'bold 38px Inter, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = '#fff'; g.fillText(String(n), 32, 35);
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+  return (numTexCache[n] = t);
+}
+
+// ================================================================ thèmes
+let pieceObjs = [];
+function applyTheme(id) {
+  theme = THEMES.find(t => t.id === id) || THEMES[0];
+  HORIZON.set(theme.horizon);
+  scene.fog.color.copy(HORIZON);
+  const band = new THREE.Color(theme.band);
+  HAZE_BAND.set(band.r, band.g, band.b);
+  const su = skyMat.uniforms;
+  su.top.value.set(theme.skyTop);
+  su.gA.value.set(theme.glows[0]); su.gB.value.set(theme.glows[1]); su.gC.value.set(theme.glows[2]);
+  floorMat.uniforms.base.value.set(theme.floor);
+  const fu = fieldMat.uniforms;
+  fu.uLow.value.set(theme.field.low); fu.uMid.value.set(theme.field.mid);
+  fu.uHigh.value.set(theme.field.high); fu.uEdge.value.set(theme.field.edge);
+  const fx = theme.fx || {};
+  fu.uBeam.value.set(fx.beam || 0).multiplyScalar(fx.beamStrength ?? 1);
+  fu.uAlley.value.set(fx.alley || 0).multiplyScalar(fx.alleyStrength ?? 1);
+  fu.uCaus.value = fx.caustics || 0;
+  fu.uSparkle.value = fx.sparkle || 0;
+  plinth.material.color.set(theme.plinth);
+  plinthSurface.uSurface.value = SURFACES[theme.plinthSurface || 'matte'];
+  terrainSurface.uSurface.value = SURFACES[theme.surface || 'matte'];
+  terrainMat.roughness = theme.roughness ?? 0.8;
+  // post-traitement du thème
+  const pp = theme.post || {};
+  const gu = gradePass.uniforms;
+  gu.uVignette.value = pp.vignette ?? 0.3;
+  // couleurs d'étalonnage en espace écran : prises telles quelles, sans conversion linéaire
+  const raw = (c, hex) => c.setHex(parseInt((hex || '#000000').slice(1), 16), THREE.LinearSRGBColorSpace);
+  raw(gu.uVigColor.value, pp.vignetteColor);
+  raw(gu.uShadowTint.value, pp.shadows);
+  raw(gu.uHighTint.value, pp.highlights);
+  gu.uSat.value = pp.saturation ?? 1;
+  gu.uContrast.value = pp.contrast ?? 1;
+  gu.uGrain.value = pp.grain ?? 0;
+  gu.uCA.value = pp.aberration ?? 0;
+  gu.uFrost.value = pp.frost ?? 0;
+  raw(gu.uLeak.value, pp.leak);
+  gu.uHeat.value = pp.heat ?? 0;
+  const bl = pp.bloom || { strength: 0.35, radius: 0.5, threshold: 0.85 };
+  bloom.enabled = bl.strength > 0;
+  bloom.strength = bl.strength; bloom.radius = bl.radius ?? 0.5; bloom.threshold = bl.threshold ?? 0.85;
+  configParticles(ambient.dust, theme.dust);
+  configParticles(ambient.extra, theme.extra);
+  terrainMat.envMapIntensity = theme.envIntensity ?? 0.2;
+  fill.intensity = 0.8; hemi.intensity = 0.6;
+  for (const o of pieceObjs) finishPiece(o.body.material);
+  hemi.color.set(theme.light.sky); hemi.groundColor.set(theme.light.ground);
+  sun.color.set(theme.light.sun); fill.color.set(theme.light.fill);
+  renderer.toneMappingExposure = theme.exposure ?? 1;
+  colorTerrain();
+  try { localStorage.setItem('traversal.theme', theme.id); } catch {}
+}
+{
+  let saved = null;
+  try { saved = localStorage.getItem('traversal.theme'); } catch {}
+  applyTheme(saved || THEMES[0].id);
+}
+
+// finition des pièces : laque brillante par défaut, bois peint pour le thème Atelier
+function finishPiece(m) {
+  const f = theme.pieces || {};
+  m.roughness = f.roughness ?? 0.3;
+  m.clearcoat = f.clearcoat ?? 1;
+  m.clearcoatRoughness = f.clearcoatRoughness ?? 0.12;
+}
+
+// ================================================================ pièces
+function vanguardGeometry() {
+  const r = 0.4, H = 0.5, t = 0.27, b = 0.06;
+  const B = [[r, b, 0], [0, b, r], [-r, b, 0], [0, b, -r]], T = [[0, b + H, t], [0, b + H, -t]];
+  const faces = [[B[0], B[1], T[0]], [B[1], B[2], T[0]], [B[2], B[3], T[1]], [B[3], B[0], T[1]], [B[0], T[0], T[1]], [B[2], T[1], T[0]], [B[0], B[2], B[1]], [B[0], B[3], B[2]]];
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(faces.flat(2), 3));
+  g.computeVertexNormals();
+  return { geo: g, tips: T };
+}
+const PIECE_GEO = [
+  (() => { const g = new THREE.ConeGeometry(0.27, 0.95, 5); g.translate(0, 0.535, 0); return { geo: g, tips: [[0, 1.01, 0]] }; })(),
+  vanguardGeometry(),
+  (() => {
+    const g = new THREE.CylinderGeometry(0.31, 0.36, 0.6, 3); g.translate(0, 0.36, 0);
+    return { geo: g, tips: [0, 1, 2].map(k => [0.27 * Math.sin((k * 2 * Math.PI) / 3), 0.68, 0.27 * Math.cos((k * 2 * Math.PI) / 3)]) };
+  })(),
+];
+const baseGeo = new THREE.CylinderGeometry(0.37, 0.4, 0.06, 40); baseGeo.translate(0, 0.03, 0);
+const studGeo = new THREE.SphereGeometry(0.065, 16, 12);
+const studMat = new THREE.MeshStandardMaterial({ color: 0xffd27a, metalness: 1, roughness: 0.25, emissive: 0x4a3200 });
+
+const piecesGroup = new THREE.Group();
+scene.add(piecesGroup);
+
+function buildPieces(s) {
+  piecesGroup.clear();
+  pieceObjs = s.pieces.map((p, pi) => {
+    const grp = new THREE.Group();
+    const body = new THREE.Mesh(PIECE_GEO[p.t].geo, new THREE.MeshPhysicalMaterial({
+      color: TEAM[p.o].main, metalness: 0.05, flatShading: true, side: THREE.DoubleSide,
+    }));
+    finishPiece(body.material);
+    const base = new THREE.Mesh(baseGeo, new THREE.MeshStandardMaterial({ color: TEAM[p.o].dark, roughness: 0.4, metalness: 0.3 }));
+    body.castShadow = base.castShadow = true;
+    body.receiveShadow = true;
+    grp.add(base, body);
+    for (const tip of PIECE_GEO[p.t].tips) {
+      const stud = new THREE.Mesh(studGeo, studMat.clone());
+      stud.position.set(...tip);
+      grp.add(stud);
+    }
+    grp.rotation.y = p.o === 1 ? Math.PI : 0;
+    grp.traverse(o => { o.userData.pi = pi; });
+    piecesGroup.add(grp);
+    return { grp, body };
+  });
+  syncPieces(s);
+}
+
+function setPieceOpacity(obj, a) {
+  obj.grp.traverse(o => {
+    if (!o.material) return;
+    o.material.transparent = a < 1;
+    o.material.opacity = a;
+    o.material.depthWrite = a >= 1;
+  });
+}
+
+function syncPieces(s) {
+  shadowDirty = true;
+  s.pieces.forEach((p, pi) => {
+    const o = pieceObjs[pi];
+    o.grp.visible = p.st === G.ON_BOARD;
+    o.grp.scale.setScalar(1);
+    o.grp.rotation.set(0, p.o === 1 ? Math.PI : 0, 0);
+    setPieceOpacity(o, 1);
+    if (p.st === G.ON_BOARD) {
+      const i = G.idx(p.x, p.y), [x, z] = cellXZ(i);
+      o.grp.position.set(x, topY(s.h[i]), z);
+    }
+  });
+}
+
+// ================================================================ surbrillances
+function tileTexture(kind) {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 128;
+  const g = cv.getContext('2d');
+  const rr = (x, y, w, h, r) => { g.beginPath(); g.roundRect(x, y, w, h, r); };
+  if (kind === 'arrow') {
+    g.fillStyle = 'rgba(255,255,255,.95)';
+    g.beginPath(); g.moveTo(64, 10); g.lineTo(112, 62); g.lineTo(82, 62); g.lineTo(82, 116); g.lineTo(46, 116); g.lineTo(46, 62); g.lineTo(16, 62); g.closePath(); g.fill();
+  } else if (kind === 'ring') {
+    g.strokeStyle = '#fff'; g.lineWidth = 9;
+    g.beginPath(); g.arc(64, 64, 52, 0, Math.PI * 2); g.stroke();
+    g.globalAlpha = 0.25; g.lineWidth = 22; g.stroke();
+  } else {
+    const grd = g.createRadialGradient(64, 64, 10, 64, 64, 80);
+    grd.addColorStop(0, 'rgba(255,255,255,.25)'); grd.addColorStop(1, 'rgba(255,255,255,.6)');
+    g.fillStyle = grd; rr(8, 8, 112, 112, 20); g.fill();
+    g.strokeStyle = 'rgba(255,255,255,1)'; g.lineWidth = 6; rr(8, 8, 112, 112, 20); g.stroke();
+  }
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return t;
+}
+const TEX = { tile: tileTexture('tile'), arrow: tileTexture('arrow'), ring: tileTexture('ring') };
+const COLORS = { move: 0x6fdcff, attack: 0xff4a4a, exit: 0xffd36b, hover: 0xffffff };
+const overlayGroup = new THREE.Group();
+scene.add(overlayGroup);
+const tileGeo = new THREE.PlaneGeometry(0.92, 0.92);
+
+const hoverTile = new THREE.Mesh(tileGeo, new THREE.MeshBasicMaterial({ map: TEX.tile, color: 0xffffff, transparent: true, opacity: 0.35, depthWrite: false }));
+hoverTile.rotation.x = -Math.PI / 2;
+hoverTile.visible = false;
+scene.add(hoverTile);
+
+const selRing = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1), new THREE.MeshBasicMaterial({ map: TEX.ring, color: 0xffd36b, transparent: true, depthWrite: false }));
+selRing.rotation.x = -Math.PI / 2;
+selRing.visible = false;
+scene.add(selRing);
+
+let pathMesh = null;
+const pathMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
+
+function showOverlays(moves) {
+  overlayGroup.clear();
+  for (const m of moves) {
+    const isExit = m.kind === 'exit';
+    const mat = new THREE.MeshBasicMaterial({ map: isExit ? TEX.arrow : TEX.tile, color: COLORS[m.kind], transparent: true, opacity: m.kind === 'move' ? 0.8 : 0.9, depthWrite: false });
+    const mesh = new THREE.Mesh(isExit ? new THREE.PlaneGeometry(0.62, 0.62) : tileGeo, mat);
+    mesh.rotation.x = -Math.PI / 2;
+    const [x, z] = cellXZ(m.to);
+    if (isExit) {
+      const o = state.pieces[m.pi].o;
+      mesh.rotation.z = o === 0 ? 0 : Math.PI;
+      mesh.position.set(x, 0.06, o === 0 ? -5.6 : 5.6);
+    } else mesh.position.set(x, topY(state.h[m.to]) + 0.015, z);
+    mesh.userData.move = m;
+    mesh.userData.baseOpacity = mat.opacity;
+    overlayGroup.add(mesh);
+  }
+}
+
+function pathPoints(m) {
+  const pts = m.path.map(i => { const [x, z] = cellXZ(i); return new THREE.Vector3(x, topY(state.h[i]) + 0.12, z); });
+  if (m.kind === 'exit') {
+    const last = pts[pts.length - 1], o = state.pieces[m.pi].o;
+    pts.push(new THREE.Vector3(last.x, 0.15, o === 0 ? -5.5 : 5.5));
+  }
+  if (m.special) {
+    const a = pts[0], b = pts[1];
+    pts.splice(1, 0, a.clone().lerp(b, 0.5).setY(Math.max(a.y, b.y) + 0.6));
+  }
+  // marches : on insère des points intermédiaires au niveau le plus haut pour suivre le relief
+  const out = [pts[0]];
+  for (let k = 1; k < pts.length; k++) {
+    const a = out[out.length - 1], b = pts[k];
+    if (!m.special && Math.abs(a.y - b.y) > 0.01) {
+      const mid = a.clone().lerp(b, 0.5); mid.y = Math.max(a.y, b.y) + 0.04;
+      out.push(mid);
+    }
+    out.push(b);
+  }
+  return out;
+}
+
+function showPath(m) {
+  if (pathMesh) { scene.remove(pathMesh); pathMesh.geometry.dispose(); pathMesh = null; }
+  if (!m) return;
+  const pts = pathPoints(m);
+  if (pts.length < 2) return;
+  const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal', 0.3);
+  pathMat.color.setHex(COLORS[m.kind]);
+  pathMesh = new THREE.Mesh(new THREE.TubeGeometry(curve, pts.length * 12, 0.035, 8, false), pathMat);
+  scene.add(pathMesh);
+}
+
+// ================================================================ animations
+const tweens = [];
+const tween = (dur, fn) => new Promise(res => tweens.push({ t: 0, dur, fn, res }));
+const easeIO = t => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+const wait = ms => new Promise(r => setTimeout(r, ms));
+
+function hop(obj, from, to, arc, dur) {
+  return tween(dur, k => {
+    const e = easeIO(k);
+    obj.position.lerpVectors(from, to, e);
+    obj.position.y += Math.sin(Math.PI * e) * arc;
+  });
+}
+
+const particles = [];
+const shardGeo = new THREE.TetrahedronGeometry(0.07);
+const sparkGeo = new THREE.OctahedronGeometry(0.05);
+function burst(pos, color, n = 26, spark = false, gravity = null, speed = 1) {
+  for (let i = 0; i < n; i++) {
+    const mat = spark
+      ? new THREE.MeshBasicMaterial({ color, transparent: true })
+      : new THREE.MeshStandardMaterial({ color, roughness: 0.4, transparent: true, flatShading: true });
+    const m = new THREE.Mesh(spark ? sparkGeo : shardGeo, mat);
+    m.position.copy(pos);
+    const a = Math.random() * Math.PI * 2, sp = (spark ? 0.6 + Math.random() * 1.2 : 1.2 + Math.random() * 2.2) * speed;
+    m.userData = { v: new THREE.Vector3(Math.cos(a) * sp, ((spark ? 1.5 : 2.5) + Math.random() * 2.5) * speed, Math.sin(a) * sp), life: 0, max: spark ? 1.4 : 1.1, spark, g: gravity };
+    scene.add(m);
+    particles.push(m);
+  }
+}
+
+function floatText(worldPos, text, color) {
+  const v = worldPos.clone().project(camera);
+  const el = document.createElement('div');
+  el.className = 'float';
+  el.textContent = text;
+  el.style.color = color;
+  el.style.left = ((v.x + 1) / 2) * innerWidth + 'px';
+  el.style.top = ((1 - v.y) / 2) * innerHeight + 'px';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 1700);
+}
+
+async function animateMove(m, before) {
+  const obj = pieceObjs[m.pi], grp = obj.grp, p = before.pieces[m.pi];
+  const pos = i => { const [x, z] = cellXZ(i); return new THREE.Vector3(x, topY(before.h[i]), z); };
+  const cells = m.path;
+  const defender = m.kind === 'attack' ? pieceObjs[before.cell[m.to]] : null;
+
+  for (let k = 1; k < cells.length; k++) {
+    const a = grp.position.clone(), b = pos(cells[k]);
+    const final = k === cells.length - 1;
+    const dh = Math.abs(before.h[cells[k]] - before.h[cells[k - 1]]);
+    const arc = m.special ? 0.9 : 0.16 + dh * LEVEL * 0.55;
+    const dur = m.special ? 0.5 : 0.17 + dh * 0.04;
+    if (final && defender) {
+      const dPos = defender.grp.position.clone();
+      const hit = hop(grp, a, b, arc + 0.25, dur + 0.08);
+      await wait((dur + 0.08) * 650);
+      burst(dPos.clone().add(new THREE.Vector3(0, 0.4, 0)), TEAM[1 - p.o].main, 30);
+      const tb = theme.burst || {};
+      burst(dPos.clone().add(new THREE.Vector3(0, 0.4, 0)), tb.color ?? 0xffe0a0, tb.count ?? 12, !tb.shards, tb.gravity ?? null, tb.speed ?? 1);
+      tween(0.35, e => { defender.grp.scale.setScalar(1 - e); defender.grp.rotation.y += 0.25; }).then(() => { defender.grp.visible = false; });
+      await hit;
+    } else await hop(grp, a, b, arc, dur);
+  }
+
+  if (m.kind === 'exit') {
+    const a = grp.position.clone();
+    const b = new THREE.Vector3(a.x, 0.05, p.o === 0 ? -5.6 : 5.6);
+    await hop(grp, a, b, 0.4, 0.35);
+    burst(b.clone().add(new THREE.Vector3(0, 0.3, 0)), 0xffd36b, 34, true);
+    floatText(b.clone().add(new THREE.Vector3(0, 0.8, 0)), '+' + G.STR[p.t], TEAM[p.o].css);
+    setPieceOpacity(obj, 1);
+    const start = grp.position.clone();
+    await tween(0.8, e => {
+      grp.position.set(start.x, start.y + e * 2.2, start.z + (p.o === 0 ? -1 : 1) * e * 0.6);
+      grp.rotation.y += 0.12;
+      setPieceOpacity(obj, 1 - e);
+    });
+    grp.visible = false;
+  }
+}
+
+// rotation douce de la caméra vers un camp
+function turnCameraTo(side, dur = 1.1) {
+  const off = camera.position.clone().sub(controls.target);
+  const sph = new THREE.Spherical().setFromVector3(off);
+  const from = sph.theta;
+  let to = side === 0 ? 0 : Math.PI;
+  let d = ((to - from + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+  if (Math.abs(d) < 0.01) return Promise.resolve();
+  return tween(dur, k => {
+    const s2 = new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
+    s2.theta = from + d * easeIO(k);
+    camera.position.copy(controls.target).add(new THREE.Vector3().setFromSpherical(s2));
+  });
+}
+
+// ================================================================ état du jeu
+let state = null, history = [], selected = -1, selMoves = [], busy = false, gameToken = 0;
+let showHeights = false, viewSide = 0, autoRotateView = true;
+const cfg = { mode: 'bot', side: 0, level: 'medium', terrain: 'random' };
+const isHuman = t => cfg.mode === 'pvp' || t === cfg.side;
+
+let worldSeed = 0;
+function loadWorld() {
+  worldSeed = randSeed();
+  const h = G.generateTerrain(cfg.terrain, worldSeed);
+  state = G.newGame(h);
+  buildTerrain(h, cfg.terrain);
+  buildPieces(state);
+  riseTerrain(h);
+  dropPieces();
+  const label = `Monde n° ${worldSeed.toLocaleString('fr-FR')} · ${G.TERRAIN_MODES.find(m => m[0] === cfg.terrain)[1]}`;
+  $('world').textContent = label;
+  $('menuWorld').textContent = label;
+}
+
+function newMatch() {
+  gameToken++;
+  history = [];
+  loadWorld();
+  clearSelection();
+  $('name0').textContent = cfg.mode === 'bot' ? (cfg.side === 0 ? 'Toi · Rouge' : 'Bot · Rouge') : 'Rouge';
+  $('name1').textContent = cfg.mode === 'bot' ? (cfg.side === 1 ? 'Toi · Bleu' : 'Bot · Bleu') : 'Bleu';
+}
+
+function startGame() {
+  newMatch();
+  $('menu').classList.add('hidden');
+  $('hud').classList.remove('hidden');
+  controls.autoRotate = false;
+  viewSide = cfg.mode === 'bot' ? cfg.side : 0;
+  turnCameraTo(viewSide, 1.4);
+  busy = true;
+  setStatus('Matérialisation du monde…', 0);
+  const token = gameToken;
+  wait(1900).then(() => { if (token === gameToken) nextTurn(); });
+}
+
+let worker = null;
+try { worker = new Worker(new URL('./ai-worker.js', import.meta.url), { type: 'module' }); } catch { worker = null; }
+
+function askBot(s) {
+  const token = gameToken;
+  return new Promise(res => {
+    const fallback = () => setTimeout(() => res({ move: chooseMove(s, cfg.level), token }), 20);
+    if (!worker) return fallback();
+    worker.onmessage = e => res(e.data);
+    worker.onerror = ev => { ev.preventDefault?.(); worker = null; fallback(); };
+    worker.postMessage({ state: s, level: cfg.level, token });
+  });
+}
+
+async function nextTurn() {
+  updateHUD();
+  if (state.over) { busy = true; await wait(600); showGameOver(); return; }
+  if (state.passed) toast(`${G.PLAYER_NAMES[1 - state.turn]} ne peut pas jouer : tour passé.`);
+  if (isHuman(state.turn)) {
+    busy = false;
+    if (cfg.mode === 'pvp' && autoRotateView && viewSide !== state.turn) { viewSide = state.turn; turnCameraTo(viewSide); }
+    setStatus(`À ${state.turn === 0 ? 'Rouge' : 'Bleu'} de jouer — choisis une pièce`, state.turn);
+    return;
+  }
+  busy = true;
+  setStatus('Le bot réfléchit…', state.turn, true);
+  const t0 = performance.now();
+  const { move, token } = await askBot(state);
+  if (token !== gameToken) return;
+  const elapsed = performance.now() - t0;
+  if (elapsed < 650) await wait(650 - elapsed);
+  if (token !== gameToken || !move) return;
+  await performMove(move);
+}
+
+async function performMove(m) {
+  busy = true;
+  const token = gameToken;
+  clearSelection();
+  const before = state;
+  history.push(before);
+  state = G.applyMove(before, m);
+  setStatus(describeMove(before, m), before.turn);
+  await animateMove(m, before);
+  if (token !== gameToken) return;
+  syncPieces(state);
+  nextTurn();
+}
+
+function describeMove(s, m) {
+  const p = s.pieces[m.pi], who = G.PLAYER_NAMES[p.o], name = G.TYPE_NAMES[p.t];
+  if (m.kind === 'exit') return `${who} : ${name} franchit l’arrivée ! +${G.STR[p.t]}`;
+  if (m.kind === 'attack') return `${who} : ${name} capture ${G.TYPE_NAMES[s.pieces[s.cell[m.to]].t]} (${m.combat.att} ≥ ${m.combat.def})`;
+  return `${who} : ${name} se déplace`;
+}
+
+function undo() {
+  if (busy || !history.length) return;
+  gameToken++;
+  do { state = history.pop(); } while (history.length && !isHuman(state.turn));
+  if (!isHuman(state.turn)) { history.push(state); state = history.pop(); }
+  clearSelection();
+  syncPieces(state);
+  nextTurn();
+}
+
+// ================================================================ sélection & interaction
+function select(pi) {
+  clearSelection();
+  selected = pi;
+  selMoves = G.pieceMoves(state, pi);
+  showOverlays(selMoves);
+  showCard(pi);
+}
+function clearSelection() {
+  if (selected >= 0 && state) {
+    const p = state.pieces[selected];
+    if (p.st === G.ON_BOARD) pieceObjs[selected].grp.position.y = topY(state.h[G.idx(p.x, p.y)]);
+  }
+  selected = -1; selMoves = [];
+  shadowDirty = true;
+  overlayGroup.clear();
+  showPath(null);
+  selRing.visible = false;
+  hideTip();
+  showCard(-1);
+}
+
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+let hover = { move: null, pi: -1, cell: -1 };
+
+function pick(ev) {
+  pointer.set((ev.clientX / innerWidth) * 2 - 1, -(ev.clientY / innerHeight) * 2 + 1);
+  raycaster.setFromCamera(pointer, camera);
+  const res = { move: null, pi: -1, cell: -1 };
+  const ov = raycaster.intersectObjects(overlayGroup.children, false)[0];
+  const pc = raycaster.intersectObjects(piecesGroup.children, true).find(h => h.object.parent.visible);
+  const tr = terrainMesh ? raycaster.intersectObject(terrainMesh, false)[0] : null;
+  const dOv = ov ? ov.distance : Infinity, dPc = pc ? pc.distance : Infinity, dTr = tr ? tr.distance : Infinity;
+  if (pc && dPc <= dOv + 0.3 && dPc <= dTr + 0.01) {
+    res.pi = pc.object.userData.pi;
+    const p = state.pieces[res.pi];
+    res.cell = G.idx(p.x, p.y);
+  } else if (ov && dOv <= dTr + 0.05) {
+    res.move = ov.object.userData.move;
+    res.cell = res.move.to;
+  } else if (tr) res.cell = instToCell[tr.instanceId];
+  if (!res.move && res.cell >= 0 && selected >= 0) {
+    res.move = selMoves.find(m => m.to === res.cell && m.kind !== 'exit') || null;
+  }
+  return res;
+}
+
+let downAt = null;
+canvas.addEventListener('pointerdown', e => { downAt = [e.clientX, e.clientY]; });
+canvas.addEventListener('pointerup', e => {
+  if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 6) return;
+  downAt = null;
+  if (!state || busy || state.over || !isHuman(state.turn)) return;
+  const h = pick(e);
+  if (h.move && selected >= 0) return void performMove(h.move);
+  if (h.pi >= 0 && state.pieces[h.pi].o === state.turn) return void (h.pi === selected ? clearSelection() : select(h.pi));
+  clearSelection();
+});
+let pendingMove = null;
+canvas.addEventListener('pointermove', e => {
+  if (!pendingMove) requestAnimationFrame(() => { const ev = pendingMove; pendingMove = null; onHover(ev); });
+  pendingMove = e;
+});
+function onHover(e) {
+  if (!state || $('hud').classList.contains('hidden')) return;
+  const h = pick(e);
+  hover = h;
+  // pièce survolée
+  pieceObjs.forEach((o, pi) => o.body.material.emissive.setHex(pi === h.pi && pi !== selected ? 0x2a2a2a : 0x000000));
+  canvas.style.cursor = (h.move || (h.pi >= 0 && state.pieces[h.pi].o === state.turn && isHuman(state.turn))) && !busy ? 'pointer' : 'default';
+  // case survolée
+  if (h.cell >= 0 && !busy) {
+    const [x, z] = cellXZ(h.cell);
+    hoverTile.position.set(x, topY(state.h[h.cell]) + 0.02, z);
+    hoverTile.visible = true;
+  } else hoverTile.visible = false;
+  // chemin et infobulle
+  overlayGroup.children.forEach(o => { o.material.opacity = o.userData.move === h.move ? 1 : o.userData.baseOpacity; });
+  showPath(h.move);
+  if (h.move) showMoveTip(h.move, e);
+  else if (h.cell >= 0 && showHeights) showTip(`Hauteur <b>${state.h[h.cell]}</b>`, e);
+  else hideTip();
+  if (selected < 0) showCard(h.pi);
+}
+
+// ================================================================ HUD
+function setStatus(text, side, thinking = false) {
+  $('statusText').textContent = text;
+  $('statusDot').style.background = TEAM[side].css;
+  $('statusDot').className = thinking ? 'spinner' : 'dot';
+  if (thinking) $('statusDot').style.background = 'transparent';
+}
+
+function updateHUD() {
+  $('score0').textContent = state.score[0];
+  $('score1').textContent = state.score[1];
+  $('ply').textContent = state.ply;
+  $('crossed').textContent = state.crossed;
+  for (let o = 0; o < 2; o++) {
+    $('side' + o).classList.toggle('active', !state.over && state.turn === o);
+    $('lost' + o).textContent = state.pieces.filter(p => p.o === o && p.st === G.CAPTURED).map(p => G.TYPE_GLYPHS[p.t]).join('') || '—';
+  }
+  $('btnUndo').disabled = !history.length;
+}
+
+function showCard(pi) {
+  const card = $('card');
+  if (pi < 0) { card.classList.add('hidden-soft'); return; }
+  const p = state.pieces[pi];
+  card.innerHTML = `
+    <div class="head"><span class="glyph" style="color:${TEAM[p.o].css}">${G.TYPE_GLYPHS[p.t]}</span>
+      <div><div class="title">${G.TYPE_NAMES[p.t]}</div><div class="owner">${G.PLAYER_NAMES[p.o]} · hauteur ${state.h[G.idx(p.x, p.y)]}</div></div></div>
+    <div class="stats"><div class="stat"><b>${G.MOVE[p.t]}</b><span>Mouvement</span></div><div class="stat"><b>${G.STR[p.t]}</b><span>Force</span></div></div>
+    <p>${G.TYPE_DESC[p.t]}</p>`;
+  card.classList.remove('hidden-soft');
+}
+
+function showTip(html, e) {
+  const tip = $('tip');
+  tip.innerHTML = html;
+  tip.classList.remove('hidden');
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.min(e.clientX, innerWidth - w - 24) + 'px';
+  tip.style.top = Math.min(e.clientY, innerHeight - h - 24) + 'px';
+}
+function hideTip() { $('tip').classList.add('hidden'); }
+
+function showMoveTip(m, e) {
+  const p = state.pieces[m.pi];
+  const sp = m.special === 'diag' ? 'Pas en diagonale' : m.special === 'jump' ? 'Bond de 2 cases' : null;
+  if (m.kind === 'move') return showTip(`${sp || `Coût : <b>${m.cost}</b> / ${G.MOVE[p.t]}`}`, e);
+  if (m.kind === 'exit') return showTip(`<b style="color:#ffd36b">Franchir l’arrivée</b><br>+${G.STR[p.t]} point${G.STR[p.t] > 1 ? 's' : ''}${p.t === G.SENTINEL && state.crossed === 0 ? '<br><b>Victoire immédiate !</b>' : ''}`, e);
+  const c = m.combat, d = state.pieces[c.defender];
+  const sign = n => (n > 0 ? '+' + n : String(n));
+  const rows = [[`${G.TYPE_NAMES[p.t]}`, c.base]];
+  if (c.height) rows.push([c.height > 0 ? 'Avantage de hauteur' : 'Attaque en montée', sign(c.height)]);
+  if (c.vb) rows.push(['Charge de l’Avant-garde', '+1']);
+  if (c.allies) rows.push(['Alliés adjacents', '+' + c.allies]);
+  const drows = [[G.TYPE_NAMES[d.t], c.dBase]];
+  if (c.reinf) drows.push(['Renforts', '+' + c.reinf]);
+  const tbl = r => `<table>${r.map(([a, b]) => `<tr><td>${a}</td><td class="n">${b}</td></tr>`).join('')}</table>`;
+  showTip(`${sp ? `<i>${sp}</i><br>` : ''}<b style="color:${TEAM[p.o].css}">Attaque ${c.att}</b>${tbl(rows)}<b style="color:${TEAM[d.o].css}">Défense ${c.def}</b>${tbl(drows)}<span class="ok">Capture ✓</span>`, e);
+}
+
+let toastTimer = 0;
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.remove('hidden');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.add('hidden'), 2600);
+}
+
+function showGameOver() {
+  const w = state.winner;
+  let title;
+  if (w === 2) title = 'Match nul';
+  else if (cfg.mode === 'bot') title = w === cfg.side ? 'Victoire !' : 'Défaite';
+  else title = `Victoire de ${G.PLAYER_NAMES[w]}`;
+  $('overTitle').textContent = title;
+  $('overTitle').style.color = w === 2 ? '#fff' : TEAM[w].css;
+  $('overS0').textContent = state.score[0];
+  $('overS1').textContent = state.score[1];
+  $('overReason').textContent = state.reason + '.';
+  $('over').classList.remove('hidden');
+  setStatus(title, w === 2 ? 0 : w);
+}
+
+// ================================================================ menus
+const terrainSeg = $('terrainSeg');
+terrainSeg.innerHTML = G.TERRAIN_MODES.map(([v, l]) => `<button data-v="${v}" class="${v === cfg.terrain ? 'sel' : ''}">${l}</button>`).join('');
+// sélecteur de thème : une pastille par thème — anneau extérieur = décor (ciel, brume, lueur),
+// disque central = plateau (relief bas → haut). Le nom s'affiche au survol et pour le thème choisi.
+$('themeSeg').innerHTML = THEMES.map(t => {
+  const ring = `conic-gradient(from 200deg, ${t.skyTop}, ${t.field.mid}, ${t.glows[2]}, ${t.field.high}, ${t.skyTop})`;
+  const core = `linear-gradient(135deg, ${t.terrain.top[1]}, ${t.terrain.top[4]} 55%, ${t.terrain.top[7]})`;
+  return `<button data-v="${t.id}" title="${t.name}" aria-label="Thème ${t.name}" class="${t.id === theme.id ? 'sel' : ''}" style="background:${ring}"><i style="background:${core}"></i></button>`;
+}).join('');
+const showThemeName = id => { $('themeName').textContent = '· ' + (THEMES.find(t => t.id === id) || theme).name; };
+showThemeName(theme.id);
+$('themeSeg').querySelectorAll('button').forEach(b => {
+  b.addEventListener('mouseenter', () => showThemeName(b.dataset.v));
+  b.addEventListener('mouseleave', () => showThemeName(theme.id));
+});
+document.querySelectorAll('.seg').forEach(seg => {
+  seg.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    seg.querySelectorAll('button').forEach(x => x.classList.toggle('sel', x === b));
+    const key = seg.dataset.key;
+    cfg[key] = key === 'side' ? Number(b.dataset.v) : b.dataset.v;
+    if (key === 'mode') document.querySelectorAll('.bot-only').forEach(el => el.classList.toggle('hidden', cfg.mode !== 'bot'));
+    if (key === 'terrain') previewTerrain();
+    if (key === 'theme') { applyTheme(b.dataset.v); showThemeName(theme.id); }
+  });
+});
+
+function previewTerrain() {
+  gameToken++;
+  loadWorld();
+}
+
+function openMenu() {
+  $('btnResume').classList.toggle('hidden', !state || state.over || $('hud').classList.contains('hidden'));
+  $('menu').classList.remove('hidden');
+}
+
+$('btnStart').onclick = startGame;
+$('btnResume').onclick = () => $('menu').classList.add('hidden');
+$('btnMenu').onclick = openMenu;
+$('btnMenuRules').onclick = $('btnRules').onclick = () => $('rules').classList.remove('hidden');
+$('btnCloseRules').onclick = () => $('rules').classList.add('hidden');
+$('btnUndo').onclick = undo;
+$('btnView').onclick = () => { viewSide = 1 - viewSide; turnCameraTo(viewSide); };
+$('btnHeights').onclick = () => {
+  showHeights = !showHeights;
+  $('btnHeights').classList.toggle('on', showHeights);
+  if (heightLabels) heightLabels.visible = showHeights;
+};
+$('btnAgain').onclick = () => { $('over').classList.add('hidden'); startGame(); };
+$('btnOverMenu').onclick = () => { $('over').classList.add('hidden'); $('hud').classList.add('hidden'); controls.autoRotate = true; openMenu(); };
+$('btnOverBoard').onclick = () => $('over').classList.add('hidden');
+addEventListener('keydown', e => {
+  if (e.key === 'Escape') { clearSelection(); $('rules').classList.add('hidden'); }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'z') undo();
+});
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+  sizeGrade();
+  sizeFieldRT();
+  fitCamera();
+});
+
+// ================================================================ boucle
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.5;
+previewTerrain();
+
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
+  for (let i = tweens.length - 1; i >= 0; i--) {
+    const tw = tweens[i];
+    tw.t += dt;
+    const k = Math.min(1, tw.t / tw.dur);
+    tw.fn(k);
+    if (k >= 1) { tweens.splice(i, 1); tw.res(); }
+  }
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i], u = p.userData;
+    u.life += dt;
+    u.v.y -= (u.g ?? (u.spark ? 1.2 : 9)) * dt;
+    p.position.addScaledVector(u.v, dt);
+    p.rotation.x += dt * 6; p.rotation.y += dt * 4;
+    p.material.opacity = Math.max(0, 1 - u.life / u.max);
+    if (u.life >= u.max) { scene.remove(p); p.material.dispose(); particles.splice(i, 1); }
+  }
+  if (selected >= 0 && state && !busy) {
+    const g = pieceObjs[selected].grp, p = state.pieces[selected], i = G.idx(p.x, p.y);
+    g.position.y = topY(state.h[i]) + 0.1 + Math.sin(t * 4) * 0.05;
+    selRing.position.set(g.position.x, topY(state.h[i]) + 0.025, g.position.z);
+    selRing.scale.setScalar(1 + Math.sin(t * 4) * 0.05);
+    selRing.visible = true;
+  } else if (selRing.visible) selRing.visible = false;
+  // pulsation des cibles d'attaque
+  for (const o of overlayGroup.children)
+    if (o.userData.move.kind !== 'move' && o.userData.move !== hover.move) o.material.opacity = 0.6 + 0.3 * Math.sin(t * 5);
+  updateAmbient(t, dt);
+  if (tweens.length || riseAnim || selected >= 0 || shadowDirty) { renderer.shadowMap.needsUpdate = true; shadowDirty = false; }
+  stepRise(dt);
+  controls.update();
+  renderField();
+  composer.render();
+});
