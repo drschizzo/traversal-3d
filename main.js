@@ -1196,6 +1196,7 @@ function startGame() {
   newMatch();
   $('menu').classList.add('hidden');
   $('hud').classList.remove('hidden');
+  layoutHud();
   controls.autoRotate = false;
   viewSide = cfg.mode === 'bot' ? cfg.side : 0;
   turnCameraTo(viewSide, 1.4);
@@ -1327,6 +1328,7 @@ function updateControls() {
   $('btnLast').disabled = viewPly === null;
   $('btnHint').disabled = !state || state.over || !isHuman(state.turn) || busy || hintPending || reviewing;
   if (state) $('btnUndo').disabled = !history.length;
+  layoutHud();
 }
 
 // affiche la position après k coups (k = nombre de coups joués : retour au présent)
@@ -1564,6 +1566,39 @@ function onHover(e) {
 }
 
 // ================================================================ HUD
+// Barre d'outils : sur la ligne du tableau des scores (avec libellés, sinon en icônes) si elle tient à sa droite
+// sans le toucher, sinon en bas au centre. Les panneaux d'analyse se placent sous ce qui occupe le haut.
+function layoutHud() {
+  const hud = $('hud');
+  if (hud.classList.contains('hidden')) return;
+  const tb = $('toolbar'), sb = $('scoreboard').getBoundingClientRect(), css = document.documentElement.style;
+  let mode = 'bottom';
+  for (const m of ['full', 'icons']) {
+    hud.dataset.tb = m;
+    if (innerWidth - 16 - tb.offsetWidth >= sb.right + 16) { mode = m; break; }
+  }
+  hud.dataset.tb = mode;
+  const logo = $('logo');
+  logo.style.top = `${Math.round(sb.top + (sb.height - logo.offsetHeight) / 2)}px`; // logo aligné sur la même ligne
+  // les panneaux d'analyse commencent sous le tableau des scores, le numéro du monde et la barre d'outils
+  let below = Math.max(sb.bottom, $('world').getBoundingClientRect().bottom);
+  if (mode === 'bottom') {
+    css.setProperty('--panel-gap', '140px');
+  } else {
+    const top = sb.top + (sb.height - tb.offsetHeight) / 2; // centrée verticalement sur le tableau des scores
+    css.setProperty('--tb-top', `${Math.round(top)}px`);
+    css.setProperty('--panel-gap', '80px');
+    below = Math.max(below, top + tb.offsetHeight);
+  }
+  css.setProperty('--panel-top', `${Math.round(below + 10)}px`);
+}
+document.fonts?.ready.then(layoutHud);
+if (window.ResizeObserver) {
+  const ro = new ResizeObserver(() => layoutHud());
+  ro.observe(document.documentElement);
+  ro.observe($('scoreboard'));
+}
+
 function setStatus(text, side, thinking = false) {
   $('statusText').textContent = text;
   $('statusDot').style.background = TEAM[side].css;
@@ -1795,6 +1830,7 @@ addEventListener('resize', () => {
   sizeGrade();
   sizeFieldRT();
   fitCamera();
+  layoutHud();
 });
 
 // ================================================================ boucle

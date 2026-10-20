@@ -36,7 +36,12 @@
   #mid b { color: var(--text); font-size: 13px; }
   .lost { font-size: 13px; letter-spacing: 2px; opacity: .75; min-height: 14px; }
 
-  #toolbar { position: fixed; top: 16px; right: 16px; display: flex; gap: 6px; padding: 5px; }
+  /* position calculée par layoutHud() (main.js) : à droite du tableau des scores si elle y tient, sinon en bas */
+  #toolbar { position: fixed; top: var(--tb-top, 16px); right: 16px; display: flex; gap: 6px; padding: 5px; }
+  #hud[data-tb="icons"] #toolbar button:not(#btnPlay) span, #hud[data-tb="bottom"] #toolbar button:not(#btnPlay) span { display: none; }
+  #hud[data-tb="icons"] #toolbar button, #hud[data-tb="bottom"] #toolbar button { font-size: 16px; padding: 7px 11px; }
+  #hud[data-tb="icons"] #btnPlay span, #hud[data-tb="bottom"] #btnPlay span { font-size: 12px; }
+  #hud[data-tb="bottom"] #toolbar { top: auto; bottom: 70px; right: 50%; transform: translateX(50%); }
   #toolbar button { background: transparent; border: 0; padding: 8px 11px; border-radius: 10px; font-size: 13px; font-weight: 500; white-space: nowrap; }
   #toolbar button:hover { background: var(--glass-2); }
   #toolbar button.on { background: rgba(242,196,109,.18); color: var(--gold); }
@@ -77,7 +82,7 @@
   .worlds span { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
   .worlds em { font-style: normal; font-size: 12px; color: #d4d7df; margin-top: 6px; }
   /* ---------- panneau d'analyse */
-  #coach { position: fixed; top: 72px; right: 16px; width: 330px; max-height: calc(100vh - 150px); overflow: auto; padding: 14px 16px; font-size: 12.5px; line-height: 1.45; z-index: 5; }
+  #coach { position: fixed; top: var(--panel-top, 72px); right: 16px; width: 330px; max-height: calc(100vh - var(--panel-top, 72px) - var(--panel-gap, 80px)); overflow: auto; padding: 14px 16px; font-size: 12.5px; line-height: 1.45; z-index: 5; }
   #coach h4 { font-family: var(--display); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 14px 0 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   #coach p { margin: 6px 0; }
   #coach .muted { color: var(--muted); }
@@ -108,7 +113,7 @@
   .mini { background: var(--glass-2); border: 1px solid var(--line); border-radius: 7px; padding: 3px 8px; font-size: 10.5px; letter-spacing: .02em; text-transform: none; color: var(--text); font-family: Inter, system-ui, sans-serif; }
   .mini.on { background: rgba(242,196,109,.18); color: var(--gold); border-color: rgba(242,196,109,.5); }
   /* ---------- analyse de fin de partie */
-  #review { position: fixed; top: 72px; right: 16px; width: 370px; max-height: calc(100vh - 150px); overflow: auto; padding: 14px 16px; font-size: 12.5px; line-height: 1.45; z-index: 6; }
+  #review { position: fixed; top: var(--panel-top, 72px); right: 16px; width: 370px; max-height: calc(100vh - var(--panel-top, 72px) - var(--panel-gap, 80px)); overflow: auto; padding: 14px 16px; font-size: 12.5px; line-height: 1.45; z-index: 6; }
   #review h4 { font-family: var(--display); font-size: 12.5px; margin: 12px 0 6px; display: flex; align-items: center; gap: 7px; }
   #review p { margin: 6px 0; }
   #review .muted { color: var(--muted); }
@@ -174,19 +179,16 @@
   .big-score { display: flex; justify-content: center; gap: 30px; margin: 18px 0 8px; font-family: var(--display); font-size: 40px; font-weight: 700; }
   #overReason { text-align: center; color: var(--muted); font-size: 14px; }
 
-  @media (max-width: 1280px) { #toolbar button:not(#btnPlay) span { display: none; } #btnPlay span { font-size: 12px; } #toolbar button { font-size: 16px; padding: 7px 11px; } .side { min-width: 120px; } }
-  /* la barre d'outils passe sous le tableau des scores quand elle risque de le chevaucher */
-  @media (max-width: 1440px) { #toolbar { top: 86px; } #coach, #review { top: 142px; max-height: calc(100vh - 218px); } }
+  @media (max-width: 1280px) { .side { min-width: 120px; } }
   @media (max-width: 1000px) { #logo { display: none; } }
   @media (max-width: 860px) {
     #logo, #legend { display: none; }
     #scoreboard { top: 8px; }
     .side { min-width: 0; padding: 6px 9px; }
     .side .sub { display: none; }
-    #toolbar { top: auto; bottom: 70px; right: 50%; transform: translateX(50%); }
     #card { display: none; }
     #toolbar .nav-ext { display: none; }
-    #coach, #review { top: 64px; left: 16px; right: 16px; width: auto; max-height: 38vh; }
+    #coach, #review { left: 16px; right: 16px; width: auto; max-height: 38vh; }
     #status { bottom: 14px; font-size: 13px; }
   }
 </style>
@@ -302,6 +304,6 @@
   </div>
 </div>
 
-<script type="module" src="./main.js?v=46"></script>
+<script type="module" src="./main.js?v=49"></script>
 </body>
 </html>
