@@ -2,6 +2,8 @@
 
 Une adaptation en 3D (Three.js) du jeu de stratégie **Traversal**, jouable dans le navigateur à deux joueurs sur le même écran ou contre un bot.
 
+![Une partie sur le thème Crépuscule : l'Explorateur sélectionné montre ses déplacements possibles et le chemin survolé](docs/gameplay.jpg)
+
 > ### ⚠️ Les règles ne sont pas de moi
 > **Traversal** est un jeu original dont les règles, le concept et le nom appartiennent à leurs créateurs.
 > Ce dépôt est un projet de fan, **non officiel et sans lien** avec eux : une simple réimplémentation
@@ -46,6 +48,8 @@ Les règles complètes et officielles sont sur [traversalgame.com/rules](https:/
   rendu en raymarching volumétrique et brumeux, qui se transforme lentement.
 - **Pensé pour la fluidité** : vise 120 images/s. Le décor est rendu en demi-résolution, les ombres ne sont
   recalculées que quand quelque chose bouge, et les particules sont animées sur GPU.
+
+![Le thème Atelier, inspiré de la version en bois imaginée à l'origine pour le jeu](docs/atelier.jpg)
 
 ## Lancer le jeu
 
