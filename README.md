@@ -12,6 +12,9 @@ Une adaptation en 3D (Three.js) du jeu de stratégie **Traversal**, jouable dans
 > 👉 **Découvrez, jouez et soutenez le jeu original sur [traversalgame.com](https://www.traversalgame.com/)**
 > — règles officielles, tutoriel interactif, parties en ligne et générateur de plateaux pour l'édition physique :
 > [www.traversalgame.com/rules](https://www.traversalgame.com/rules)
+>
+> 🎬 J'ai découvert le jeu grâce à la vidéo d'Ilyas, [« Le jeu qui va écraser les échecs (Traversal) »](https://www.youtube.com/watch?v=QkmivBpoRbw) :
+> une excellente présentation pour le découvrir à votre tour.
 
 ---
 
@@ -83,6 +86,7 @@ N'importe quel serveur statique convient aussi, par exemple `python3 -m http.ser
 ## Crédits
 
 - **Jeu original, règles et concept** : [Traversal](https://www.traversalgame.com/). Tous droits réservés à leurs auteurs.
+- **Découverte du jeu** : la vidéo [« Le jeu qui va écraser les échecs (Traversal) »](https://www.youtube.com/watch?v=QkmivBpoRbw) d'[Ilyas](https://www.youtube.com/@Ilyas-he9di).
 - **Moteur 3D** : [Three.js](https://threejs.org/).
 - **Polices** : Space Grotesk et Inter (Google Fonts).
 - Cette adaptation a été développée avec l'aide de [Claude Code](https://claude.com/claude-code).
