@@ -10,7 +10,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import * as G from './game.js';
 import { chooseMove } from './ai.js';
 import { THEMES } from './themes.js';
-import { explain, renderAnalysis } from './coach.js';
+import { explain, renderAnalysis, hintSentence } from './coach.js';
 import { reviewMove, renderSummary, renderGraph, renderList, renderDetail } from './review.js';
 
 const LEVEL = 0.3;
@@ -36,7 +36,12 @@ const LEVELS_ORDER = ['high', 'medium', 'low'];
 let qualityPref = 'auto';
 try { qualityPref = localStorage.getItem('traversal.quality') || 'auto'; } catch {}
 if (qualityPref !== 'auto' && !QUALITY[qualityPref]) qualityPref = 'auto';
-let qualityLevel = qualityPref === 'auto' ? (matchMedia('(pointer: coarse)').matches ? 'medium' : 'high') : qualityPref;
+// niveau de départ du mode auto : basse sur téléphone, moyenne sur tablette, haute ailleurs
+function autoStartLevel() {
+  if (!matchMedia('(pointer: coarse)').matches) return 'high';
+  return Math.min(screen.width, screen.height) < 600 ? 'low' : 'medium';
+}
+let qualityLevel = qualityPref === 'auto' ? autoStartLevel() : qualityPref;
 let Q = QUALITY[qualityLevel];
 
 // ================================================================ renderer & scène
@@ -68,6 +73,9 @@ controls.minDistance = 7;
 controls.maxDistance = 34;
 controls.maxPolarAngle = Math.PI * 0.3;   // l'horizon reste hors champ
 controls.enablePan = false;
+
+// téléphones (paysage ou portrait) : mêmes seuils que la feuille de style
+const compactMQ = matchMedia('(orientation: landscape) and (max-height: 500px), (orientation: portrait) and (max-width: 500px)');
 
 // recule la caméra sur les écrans étroits pour que tout le plateau reste visible
 function fitCamera() {
@@ -1086,6 +1094,18 @@ selRing.rotation.x = -Math.PI / 2;
 selRing.visible = false;
 scene.add(selRing);
 
+// conseil du bot : pièce soulevée, chemin tracé et case d'arrivée cerclée de doré, jusqu'au coup joué
+let hintMove = null;
+const HINT = 0xffd36b;
+const hintMark = new THREE.Group();
+const hintTile = new THREE.Mesh(tileGeo, new THREE.MeshBasicMaterial({ map: TEX.tile, color: HINT, transparent: true, depthWrite: false }));
+const hintRing = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), new THREE.MeshBasicMaterial({ map: TEX.ring, color: HINT, transparent: true, depthWrite: false }));
+hintTile.rotation.x = hintRing.rotation.x = -Math.PI / 2;
+hintRing.position.y = 0.01;
+hintMark.add(hintTile, hintRing);
+hintMark.visible = false;
+scene.add(hintMark);
+
 let pathMesh = null;
 const pathMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
 
@@ -1136,9 +1156,9 @@ function showPath(m) {
   if (!m) return;
   const pts = pathPoints(m);
   if (pts.length < 2) return;
-  const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal', 0.3);
-  pathMat.color.setHex(COLORS[m.kind]);
-  pathMesh = new THREE.Mesh(new THREE.TubeGeometry(curve, pts.length * 12, 0.035, 8, false), pathMat);
+  const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal', 0.3), isHint = m === hintMove;
+  pathMat.color.setHex(isHint ? HINT : COLORS[m.kind]);
+  pathMesh = new THREE.Mesh(new THREE.TubeGeometry(curve, pts.length * 12, isHint ? 0.06 : 0.035, 8, false), pathMat);
   scene.add(pathMesh);
 }
 
@@ -1259,7 +1279,7 @@ let coachOn = false, coachData = null, coachLabel = '', evalHistory = [], planSh
 let movesLog = [];
 
 // inGame : une partie a été lancée (ou restaurée) sur le monde affiché et n'a pas été abandonnée
-let worldSeed = 0, worldTerrain = 'random', inGame = false;
+let worldSeed = 0, worldTerrain = 'random', inGame = false, worldLabel = '';
 // s : position à afficher (partie restaurée), sinon position de départ
 function loadWorld(seed = randSeed(), terrain = cfg.terrain, s = null) {
   worldSeed = seed;
@@ -1271,7 +1291,7 @@ function loadWorld(seed = randSeed(), terrain = cfg.terrain, s = null) {
   riseTerrain(h);
   dropPieces();
   const terrainName = G.TERRAIN_MODES.find(m => m[0] === terrain)[1];
-  $('world').textContent = `Monde n° ${seed.toLocaleString('fr-FR')} · ${terrainName}`;
+  worldLabel = `Monde n° ${seed.toLocaleString('fr-FR')} · ${terrainName}`;
   $('menuWorld').textContent = `Monde n° ${seed.toLocaleString('fr-FR')}`;
   $('menuTerrain').textContent = terrainName;
 }
@@ -1342,6 +1362,7 @@ function newMatch() {
   liveState = null;
   analyses.clear();
   resetBoard();
+  clearHint();
   clearSelection();
   clearPlan();
   inGame = true;
@@ -1445,6 +1466,7 @@ async function nextTurn() {
 async function performMove(m) {
   busy = true;
   const token = gameToken;
+  clearHint();
   clearSelection();
   clearPlan();
   const before = state;
@@ -1477,6 +1499,7 @@ function undo() {
   movesLog.length = history.length;
   saveGame();
   evalHistory = evalHistory.filter(h => h.ply < state.ply);
+  clearHint();
   clearSelection();
   syncPieces(state);
   nextTurn();
@@ -1570,6 +1593,7 @@ $('btnPlay').onclick = () => {
 async function hint() {
   if (!state || state.over || !isHuman(state.turn) || busy || hintPending || reviewing) return;
   hintPending = true;
+  clearHint();
   updateControls();
   setCoach(true);
   $('coach').innerHTML = '<div class="coach-wait"><span class="spinner"></span> Le bot analyse la position…</div>';
@@ -1581,7 +1605,7 @@ async function hint() {
   if (!move || !info) { $('coach').innerHTML = '<p class="muted">Analyse indisponible.</p>'; return; }
   coachData = explain(before, move, info);
   coachLabel = 'Conseil du bot';
-  showPlan(planItems());
+  showHint(move);
   renderCoach();
 }
 $('btnHint').onclick = hint;
@@ -1594,6 +1618,7 @@ function setCoach(on) {
   $('legend').classList.toggle('hidden', on);
   if (!on) clearPlan();
   renderCoach();
+  updateMenuShift();
 }
 $('btnCoach').onclick = () => setCoach(!coachOn);
 
@@ -1605,7 +1630,14 @@ function renderCoach() {
       <p class="muted">${play.mode === 'bvb' ? 'L’explication de chaque coup du bot s’affichera ici.' : 'Ici s’affiche le raisonnement du bot après chacun de ses coups. Au tour du joueur, « Conseil » montre le coup que le bot jouerait dans la position.'}</p>`;
     return;
   }
-  el.innerHTML = renderAnalysis(coachData, { label: coachLabel, history: evalHistory });
+  // conseil : le coup en tête, le détail replié pour que le panneau ne masque pas le plateau
+  const hint = coachLabel === 'Conseil du bot' && hintMove ? hintSentence(state, hintMove) : null;
+  el.innerHTML = renderAnalysis(coachData, { label: coachLabel, history: evalHistory, hint, collapsed: !!hint || compactMQ.matches });
+  updateMenuShift();
+  if (hint) {
+    $('coachPlayHint').onclick = () => { if (hintMove && !busy && isHuman(state.turn)) performMove(hintMove); };
+    $('coachShowHint').onclick = () => { if (hintMove) showHint(hintMove); };
+  }
   const btn = $('coachPlanBtn');
   if (btn) {
     btn.classList.toggle('on', planShown);
@@ -1655,6 +1687,21 @@ function showPlan(items) {
 }
 
 // ================================================================ sélection & interaction
+function showHint(m) {
+  hintMove = m;
+  select(m.pi);
+  const [x, z] = cellXZ(m.to), o = state.pieces[m.pi].o;
+  if (m.kind === 'exit') hintMark.position.set(x, 0.08, o === 0 ? -5.6 : 5.6);
+  else hintMark.position.set(x, topY(state.h[m.to]) + 0.035, z);
+  hintMark.visible = true;
+  showPath(m);
+}
+function clearHint() {
+  hintMove = null;
+  hintMark.visible = false;
+  showPath(null);
+}
+
 function select(pi) {
   clearSelection();
   selected = pi;
@@ -1667,10 +1714,10 @@ function clearSelection() {
     const p = state.pieces[selected];
     if (p.st === G.ON_BOARD) pieceObjs[selected].grp.position.y = topY(state.h[G.idx(p.x, p.y)]);
   }
-  selected = -1; selMoves = [];
+  selected = -1; selMoves = []; armed = null;
   shadowDirty = true;
   overlayGroup.clear();
-  showPath(null);
+  showPath(hintMove);
   selRing.visible = false;
   hideTip();
   showCard(-1);
@@ -1702,14 +1749,31 @@ function pick(ev) {
   return res;
 }
 
-let downAt = null;
-canvas.addEventListener('pointerdown', e => { downAt = [e.clientX, e.clientY]; });
+let downAt = null, toolsWereOpen = false;
+// au toucher, pas de survol : le coup visé (armed) attend un second appui
+let armed = null;
+const sameMove = (a, b) => !!a && !!b && a.pi === b.pi && a.kind === b.kind && a.to === b.to && a.special === b.special;
+canvas.addEventListener('pointerdown', e => {
+  downAt = [e.clientX, e.clientY];
+  toolsWereOpen = $('hud').classList.contains('tools-open');
+  setTools(false);
+});
 canvas.addEventListener('pointerup', e => {
   if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 6) return;
   downAt = null;
+  if (toolsWereOpen) return;
   if (!state || busy || reviewing || state.over || !isHuman(state.turn)) return;
   const h = pick(e);
-  if (h.move && selected >= 0) return void performMove(h.move);
+  if (h.move && selected >= 0) {
+    // premier appui sur une case : chemin et détail (coût, combat) comme au survol ; le second joue le coup
+    if (e.pointerType !== 'mouse' && !sameMove(h.move, armed)) {
+      onHover(e);
+      armed = h.move;
+      $('tip').insertAdjacentHTML('beforeend', '<div class="tap-again">Toucher à nouveau pour jouer</div>');
+      return;
+    }
+    return void performMove(h.move);
+  }
   if (h.pi >= 0 && state.pieces[h.pi].o === state.turn) return void (h.pi === selected ? clearSelection() : select(h.pi));
   clearSelection();
 });
@@ -1733,7 +1797,7 @@ function onHover(e) {
   } else hoverTile.visible = false;
   // chemin et infobulle
   overlayGroup.children.forEach(o => { o.material.opacity = o.userData.move === h.move ? 1 : o.userData.baseOpacity; });
-  showPath(h.move);
+  showPath(h.move || hintMove);
   if (h.move) showMoveTip(h.move, e);
   else if (h.cell >= 0 && showHeights) showTip(`Hauteur <b>${state.h[h.cell]}</b>`, e);
   else hideTip();
@@ -1742,21 +1806,26 @@ function onHover(e) {
 
 // ================================================================ HUD
 // Barre d'outils : sur la ligne du tableau des scores (avec libellés, sinon en icônes) si elle tient à sa droite
-// sans le toucher, sinon en bas au centre. Les panneaux d'analyse se placent sous ce qui occupe le haut.
+// sans le toucher, sinon en bas au centre ; sur téléphone, repliée derrière son bouton (placement par la feuille de style).
+// Les panneaux d'analyse se placent sous ce qui occupe le haut.
 function layoutHud() {
   const hud = $('hud');
   if (hud.classList.contains('hidden')) return;
   const tb = $('toolbar'), sb = $('scoreboard').getBoundingClientRect(), css = document.documentElement.style;
+  if (compactMQ.matches) {
+    hud.dataset.tb = 'compact';
+    css.setProperty('--panel-top', `${Math.round(sb.bottom + 10)}px`);
+    css.setProperty('--panel-gap', '80px');
+    return;
+  }
   let mode = 'bottom';
   for (const m of ['full', 'icons']) {
     hud.dataset.tb = m;
     if (innerWidth - 16 - tb.offsetWidth >= sb.right + 16) { mode = m; break; }
   }
   hud.dataset.tb = mode;
-  const logo = $('logo');
-  logo.style.top = `${Math.round(sb.top + (sb.height - logo.offsetHeight) / 2)}px`; // logo aligné sur la même ligne
-  // les panneaux d'analyse commencent sous le tableau des scores, le numéro du monde et la barre d'outils
-  let below = Math.max(sb.bottom, $('world').getBoundingClientRect().bottom);
+  // les panneaux d'analyse commencent sous le tableau des scores et la barre d'outils
+  let below = sb.bottom;
   if (mode === 'bottom') {
     css.setProperty('--panel-gap', '140px');
   } else {
@@ -1768,6 +1837,24 @@ function layoutHud() {
   css.setProperty('--panel-top', `${Math.round(below + 10)}px`);
 }
 document.fonts?.ready.then(layoutHud);
+
+// téléphones : la barre d'outils s'ouvre en liste depuis son bouton et se referme après un choix
+function setTools(open) {
+  $('hud').classList.toggle('tools-open', open);
+  $('btnTools').setAttribute('aria-expanded', open);
+}
+$('btnTools').onclick = () => setTools(!$('hud').classList.contains('tools-open'));
+// les commandes de lecture (⏮ ◀ ⏸ ▶ ⏭) laissent la liste ouverte pour enchaîner les appuis
+const KEEP_TOOLS = ['btnFirst', 'btnPrev', 'btnPlay', 'btnNext', 'btnLast'];
+$('toolbar').addEventListener('click', e => { const b = e.target.closest('button'); if (b && !KEEP_TOOLS.includes(b.id)) setTools(false); });
+compactMQ.addEventListener?.('change', () => { setTools(false); layoutHud(); renderCoach(); updateMenuShift(false); });
+
+// portrait sur téléphone : invitation à passer en paysage ; une fois écartée, elle ne revient plus
+try { if (localStorage.getItem('traversal.rotateOk')) $('rotateHint').classList.add('dismissed'); } catch {}
+$('btnRotateOk').onclick = () => {
+  $('rotateHint').classList.add('dismissed');
+  try { localStorage.setItem('traversal.rotateOk', '1'); } catch {}
+};
 if (window.ResizeObserver) {
   const ro = new ResizeObserver(() => layoutHud());
   ro.observe(document.documentElement);
@@ -1863,7 +1950,7 @@ function showGameOver() {
     $('overTeam' + o).classList.toggle('lose', w !== 2 && w !== o);
   }
   const caps = movesLog.filter(x => x.move.kind === 'attack').length;
-  $('overStats').textContent = `${state.ply} coups · ${caps} capture${caps > 1 ? 's' : ''} · ${$('world').textContent}`;
+  $('overStats').textContent = `${state.ply} coups · ${caps} capture${caps > 1 ? 's' : ''} · ${worldLabel}`;
   $('btnReview').classList.toggle('hidden', !movesLog.some(x => x.human));
   $('over').classList.remove('hidden');
   setStatus(title, w === 2 ? 0 : w);
@@ -1885,6 +1972,7 @@ async function startReview() {
   setCoach(false);
   $('legend').classList.add('hidden');
   $('review').classList.remove('hidden');
+  updateMenuShift();
   renderReview();
   const think = s => askBot(s, 'review', true);
   for (let k = 0; k < humans.length; k++) {
@@ -1936,6 +2024,7 @@ function closeReview(showOver) {
   reviewing = false;
   $('review').classList.add('hidden');
   $('legend').classList.remove('hidden');
+  updateMenuShift();
   clearPlan();
   if (finalState) { state = finalState; syncPieces(state); updateHUD(); updateControls(); }
   if (showOver) showGameOver();
@@ -2021,8 +2110,10 @@ function abandonGame() {
   history = [];
   movesLog = [];
   saveGame();
+  clearHint();
   clearSelection();
   clearPlan();
+  setTools(false);
   $('hud').classList.add('hidden');
   controls.autoRotate = true;
   updateMenuButtons();
@@ -2051,14 +2142,37 @@ function openMenu() {
   updateMenuShift();
 }
 
-// Menu ouvert sur grand écran : la vue 3D glisse vers la droite pour que le monde reste visible à côté du panneau.
+// Sur grand écran, la vue 3D glisse pour rester dégagée : vers la droite à côté du menu,
+// vers la gauche quand un panneau d'analyse occupe la droite.
 let viewShift = 0, shiftTween = 0;
 function applyViewShift(px) {
   viewShift = px;
   if (Math.abs(px) < 0.5) camera.clearViewOffset();
   else camera.setViewOffset(innerWidth, innerHeight, -px, 0, innerWidth, innerHeight);
 }
-const menuShiftTarget = () => (innerWidth >= 900 && !$('menu').classList.contains('hidden') ? Math.round(($('menuPanel').getBoundingClientRect().right) / 2) : 0);
+function menuShiftTarget() {
+  if (innerWidth < 900 || compactMQ.matches) return 0;
+  if (!$('menu').classList.contains('hidden')) return Math.round($('menuPanel').getBoundingClientRect().right / 2);
+  if ($('hud').classList.contains('hidden')) return 0;
+  const panel = [$('coach'), $('review')].find(el => !el.classList.contains('hidden'));
+  if (!panel || panel.offsetHeight < innerHeight * 0.4) return 0; // un panneau court ne couvre que le fond du plateau
+  // juste assez pour dégager le plateau du panneau, sans le faire sortir à gauche
+  const half = boardHalfWidthPx(), free = panel.getBoundingClientRect().left - 12;
+  const need = innerWidth / 2 + half - free, room = innerWidth / 2 - half - 12;
+  return -Math.round(Math.max(0, Math.min(need, room)));
+}
+// demi-largeur à l'écran du socle, vue non décalée
+const boardCorner = new THREE.Vector3();
+function boardHalfWidthPx() {
+  const cam = camera.clone();
+  cam.clearViewOffset();
+  let half = 0;
+  for (const x of [-5.6, 5.6]) for (const z of [-5.6, 5.6]) for (const y of [0, 3]) {
+    boardCorner.set(x, y, z).project(cam);
+    half = Math.max(half, Math.abs(boardCorner.x) * innerWidth / 2);
+  }
+  return half;
+}
 function updateMenuShift(animated = true) {
   const from = viewShift, to = menuShiftTarget(), id = ++shiftTween;
   if (!animated || from === to) return applyViewShift(to);
@@ -2162,7 +2276,7 @@ function applyQuality(level) {
 function setQualityPref(pref) {
   qualityPref = pref;
   try { localStorage.setItem('traversal.quality', pref); } catch {}
-  const level = pref === 'auto' ? (matchMedia('(pointer: coarse)').matches ? 'medium' : 'high') : pref;
+  const level = pref === 'auto' ? autoStartLevel() : pref;
   autoQ.until = performance.now() + 3000;
   applyQuality(level);
 }
@@ -2229,6 +2343,12 @@ renderer.setAnimationLoop(() => {
     selRing.scale.setScalar(1 + Math.sin(t * 4) * 0.05);
     selRing.visible = true;
   } else if (selRing.visible) selRing.visible = false;
+  if (hintMark.visible) {
+    const k = Math.sin(t * 3.5);
+    hintRing.scale.setScalar(1 + 0.12 * k);
+    hintRing.material.opacity = 0.75 + 0.25 * k;
+    hintTile.material.opacity = 0.6 + 0.25 * k;
+  }
   // pulsation des cibles d'attaque
   for (const o of overlayGroup.children)
     if (o.userData.move.kind !== 'move' && o.userData.move !== hover.move) o.material.opacity = 0.6 + 0.3 * Math.sin(t * 5);

@@ -21,7 +21,6 @@
   .hidden { display: none !important; }
 
   /* ---------- HUD */
-  #logo { position: fixed; top: 16px; left: 20px; font-family: var(--display); font-weight: 700; font-size: 22px; letter-spacing: .18em; text-transform: uppercase; color: #fff; text-shadow: 0 2px 12px rgba(0,0,0,.45); pointer-events: none; }
   #scoreboard { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); display: flex; align-items: stretch; padding: 6px; gap: 6px; }
   .side { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 11px; min-width: 150px; transition: background .3s, box-shadow .3s; }
   .side.p1 { flex-direction: row-reverse; text-align: right; }
@@ -73,11 +72,11 @@
   #tip table { border-collapse: collapse; }
   #tip td { padding: 0 6px 0 0; }
   #tip td.n { text-align: right; font-weight: 600; }
+  #tip .tap-again { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); color: #ffd36b; font-weight: 600; }
 
   .float { position: fixed; font-family: var(--display); font-weight: 700; font-size: 34px; pointer-events: none; text-shadow: 0 3px 14px rgba(0,0,0,.5); animation: floatUp 1.6s ease-out forwards; z-index: 15; }
   @keyframes floatUp { from { opacity: 0; transform: translate(-50%, 0) scale(.6); } 15% { opacity: 1; transform: translate(-50%, -10px) scale(1.15); } to { opacity: 0; transform: translate(-50%, -90px) scale(1); } }
 
-  #world { position: fixed; top: 84px; left: 50%; transform: translateX(-50%); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: rgba(242,196,109,.75); pointer-events: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
   /* ---------- écran d'accueil : panneau latéral, le monde en préparation reste visible à droite */
   .modal.menu { place-items: center start; padding: 24px; background: linear-gradient(90deg, rgba(8,10,16,.55), rgba(8,10,16,.12) 46%, rgba(8,10,16,0) 70%); }
   .menu-panel { width: min(430px, calc(100vw - 24px)); min-width: 0; max-height: calc(100vh - 48px); overflow: auto; padding: 34px 30px 22px; border-radius: 22px; margin-left: clamp(0px, 3vw, 40px); }
@@ -167,6 +166,15 @@
   .coach-head .who { font-weight: 700; font-size: 12px; }
   .coach-move { font-family: var(--display); font-weight: 600; font-size: 16px; margin-bottom: 10px; }
   .coach-wait { display: flex; gap: 10px; align-items: center; color: var(--muted); }
+  /* conseil : le coup à jouer en tête, en clair, avec de quoi le jouer d'un geste ; le détail se replie */
+  .hint-box { border: 1px solid rgba(255,211,107,.55); background: rgba(255,211,107,.08); border-radius: 12px; padding: 10px 12px; margin: 6px 0 12px; }
+  .hint-box .what { font-family: var(--display); font-weight: 600; font-size: 15px; line-height: 1.35; }
+  .hint-cta { display: flex; gap: 8px; margin-top: 10px; }
+  .hint-cta button { flex: 1; margin: 0; padding: 8px 10px; font-size: 13px; }
+  #coach details > summary { cursor: pointer; list-style: none; font-size: 12px; color: var(--muted); margin: 4px 0; }
+  #coach details > summary::-webkit-details-marker { display: none; }
+  #coach details > summary::before { content: '▸ '; }
+  #coach details[open] > summary::before { content: '▾ '; }
   .eval-bar { position: relative; height: 20px; border-radius: 6px; overflow: hidden; background: var(--blue); font-size: 10.5px; font-weight: 700; }
   .eval-bar i { position: absolute; inset: 0 auto 0 0; background: var(--red); transition: width .5s; }
   .eval-bar span { position: absolute; top: 3px; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.5); }
@@ -252,9 +260,8 @@
   .rules ul { margin: 4px 0; padding-left: 18px; }
 
   @media (max-width: 1280px) { .side { min-width: 120px; } }
-  @media (max-width: 1000px) { #logo { display: none; } }
   @media (max-width: 860px) {
-    #logo, #legend { display: none; }
+    #legend { display: none; }
     #scoreboard { top: 8px; }
     .side { min-width: 0; padding: 6px 9px; }
     .side .sub { display: none; }
@@ -262,6 +269,62 @@
     #toolbar .nav-ext { display: none; }
     #coach, #review { left: 16px; right: 16px; width: auto; max-height: 38vh; }
     #status { bottom: 14px; font-size: 13px; }
+  }
+
+  /* ---------- téléphones : barre d'outils repliée derrière un bouton, plateau dégagé */
+  #btnTools, #rotateHint { display: none; }
+  .menu-col { display: contents; }
+  @media (orientation: landscape) and (max-height: 500px), (orientation: portrait) and (max-width: 500px) {
+    #btnTools { display: grid; place-items: center; position: fixed; width: 44px; height: 44px; padding: 0; border-radius: 13px; font-size: 22px; line-height: 1; z-index: 8; }
+    #btnTools[aria-expanded="true"] { background: rgba(60,52,34,.85); color: var(--gold); }
+    #hud #toolbar { display: none; flex-direction: column; align-items: stretch; gap: 2px; transform: none; z-index: 8; overflow: auto; background: rgba(20,22,30,.9); }
+    #hud.tools-open #toolbar { display: flex; }
+    #hud #toolbar button { text-align: left; font-size: 14px; padding: 10px 14px; }
+    #legend, #card, .side .sub, #toolbar .nav-ext { display: none; }
+    .side > div { min-width: 0; }
+    .side .name { overflow: hidden; text-overflow: ellipsis; }
+  }
+  /* paysage : scores et message à gauche, outils et analyse à droite, le plateau au centre */
+  @media (orientation: landscape) and (max-height: 500px) {
+    #btnTools { top: 8px; right: 8px; }
+    #hud #toolbar { top: 58px; right: 8px; bottom: auto; max-height: calc(100vh - 66px); }
+    #scoreboard { top: 8px; left: 8px; transform: none; flex-direction: column; width: 172px; padding: 4px; gap: 4px; }
+    .side, .side.p1 { flex-direction: row; text-align: left; min-width: 0; padding: 7px 10px; gap: 8px; }
+    .side .name { font-size: 12px; }
+    .side .pts, .side.p1 .pts { font-size: 22px; margin: 0 0 0 auto; }
+    #mid { flex-direction: row; justify-content: space-between; border: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 6px 10px; min-width: 0; }
+    #mid span { white-space: nowrap; }
+    #mid { gap: 10px; }
+    #status { left: 8px; bottom: 8px; transform: none; width: 172px; max-width: none; white-space: normal; align-items: flex-start; font-size: 12px; line-height: 1.35; padding: 9px 11px; }
+    #status .dot, #status .spinner { flex: none; margin-top: 2px; }
+    #coach, #review { top: 58px; right: 8px; left: auto; width: 224px; max-height: calc(100vh - 66px); padding: 12px; }
+    .hint-cta button { padding: 8px 6px; font-size: 12.5px; white-space: nowrap; }
+    #toast { top: auto; bottom: 10px; max-width: calc(100vw - 380px); white-space: normal; text-align: center; }
+    .modal.menu { padding: 8px; }
+    .menu-panel { width: min(800px, calc(100vw - 16px)); max-height: calc(100vh - 16px); padding: 16px 20px 12px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 22px; align-items: start; }
+    .brand { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+    .brand h1 { font-size: 26px; }
+    .brand p { margin: 0; font-size: 12.5px; }
+    .menu-col { display: block; min-width: 0; }
+    .block { margin-top: 14px; }
+    .seg.modes button { padding: 9px 10px; }
+    .seg.modes svg { width: 20px; height: 20px; margin-bottom: 2px; }
+    .opts { gap: 12px; }
+    .primary.play { margin-top: 12px; padding: 12px; }
+    .menu-foot { margin-top: 8px; }
+  }
+  /* portrait : tout en bas et en haut, avec une invitation à tourner le téléphone */
+  @media (orientation: portrait) and (max-width: 500px) {
+    #btnTools { right: 8px; bottom: 12px; }
+    #hud #toolbar { right: 8px; bottom: 64px; top: auto; max-height: calc(100vh - 140px); }
+    #scoreboard { top: 8px; left: 8px; right: 8px; transform: none; }
+    .side { flex: 1; min-width: 0; padding: 6px 8px; gap: 6px; }
+    .side .name { font-size: 11.5px; }
+    .side .pts { font-size: 22px; }
+    #mid { padding: 0 6px; min-width: 0; font-size: 10px; }
+    #status { left: 8px; right: 60px; bottom: 12px; transform: none; max-width: none; min-height: 44px; white-space: normal; font-size: 12.5px; }
+    #rotateHint { display: flex; position: fixed; top: 76px; left: 50%; transform: translateX(-50%); align-items: center; gap: 8px; padding: 7px 8px 7px 14px; font-size: 12.5px; white-space: nowrap; }
+    #rotateHint.dismissed { display: none; }
   }
 </style>
 <script type="importmap">
@@ -275,7 +338,6 @@
 <canvas id="scene"></canvas>
 
 <div id="hud" class="hidden">
-  <div id="logo">Traversal</div>
   <div id="scoreboard" class="glass">
     <div class="side p0" id="side0">
       <span class="dot" style="background:var(--red)"></span>
@@ -289,7 +351,7 @@
       <div class="pts" id="score1">0</div>
     </div>
   </div>
-  <div id="world"></div>
+  <button id="btnTools" class="glass" aria-label="Outils" aria-expanded="false" aria-controls="toolbar">⋯</button>
   <div id="toolbar" class="glass">
     <button id="btnFirst" class="hidden nav-ext" title="Début de la partie">⏮</button>
     <button id="btnPrev" class="hidden" title="Coup précédent (←)">◀</button>
@@ -314,6 +376,7 @@
     <div><i style="background:#ffd36b"></i>Sortie / arrivée</div>
   </div>
   <div id="toast" class="glass hidden"></div>
+  <div id="rotateHint" class="glass"><span>⟳</span> Le jeu est plus confortable en mode paysage <button id="btnRotateOk" class="mini">OK</button></div>
 </div>
 <div id="tip" class="glass hidden"></div>
 
@@ -324,6 +387,7 @@
       <p>Traverser les montagnes. Franchir l’arrivée.</p>
     </header>
 
+    <div class="menu-col">
     <section class="block">
       <div class="label">Mode de jeu</div>
       <div class="seg modes" data-key="mode">
@@ -339,7 +403,9 @@
       <div class="opt bots-only"><div class="label">Niveau du bot</div>
         <div class="seg levels" data-key="level"><button data-v="easy"><span class="bars"><i class="on"></i><i class=""></i><i class=""></i><i class=""></i></span>Facile</button><button data-v="medium" class="sel"><span class="bars"><i class="on"></i><i class="on"></i><i class=""></i><i class=""></i></span>Moyen</button><button data-v="hard"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i></span>Difficile</button><button data-v="expert" title="8 secondes de réflexion par coup"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span>Expert</button></div></div>
     </section>
+    </div>
 
+    <div class="menu-col">
     <section class="block world" id="worldCard">
       <div class="world-head">
         <div class="world-info"><div class="label">Monde</div><div class="world-name" id="menuWorld"></div><div class="world-sub"><span id="menuTerrain"></span> · <span id="themeName"></span></div></div>
@@ -362,6 +428,7 @@
     <footer class="menu-foot">
       <button class="link" id="btnMenuRules">Règles du jeu</button>
     </footer>
+    </div>
   </div>
 </div>
 

@@ -22,6 +22,18 @@ export function describeMove(s, m) {
   return `${pieceLabel(p)} ${from} → ${cellName(m.to)}${sp}`;
 }
 
+// conseil : le coup en une phrase d'action, sans coordonnées (la pièce et sa case sont mises en évidence sur le plateau)
+// articles : l'Explorateur, l'Avant-garde, la Sentinelle
+const ART = ['l’', 'l’', 'la '];
+const named = p => `${ART[p.t]}${G.TYPE_NAMES[p.t]} ${G.TYPE_GLYPHS[p.t]}`;
+export function hintSentence(s, m) {
+  const p = s.pieces[m.pi];
+  if (m.kind === 'exit') return `Faire franchir l’arrivée à ${named(p)}`;
+  if (m.kind === 'attack') return `Capturer ${named(s.pieces[s.cell[m.to]])} avec ${named(p)}`;
+  const sp = m.special === 'jump' ? ' d’un bond' : m.special === 'diag' ? ' en diagonale' : '';
+  return `Déplacer ${named(p)}${sp} vers la case dorée`;
+}
+
 // tours minimaux pour sortir (terrain seul) ; 99 = inaccessible
 const turnsAt = (turns, p, pos) => turns[(p.o * 3 + p.t) * 100 + pos];
 const turnsOf = (turns, p) => turnsAt(turns, p, G.idx(p.x, p.y));
@@ -165,7 +177,9 @@ export function explain(before, move, info, { judged = false } = {}) {
 
 // ---------------------------------------------------------------- rendu HTML du panneau
 const DOT = ['#e0484f', '#4d8cf0'];
-export function renderAnalysis(a, { label, history = [] } = {}) {
+// hint : mise en avant du coup conseillé (phrase, boutons « Jouer ce coup » et « Montrer ») ;
+// collapsed : le détail de l'analyse est replié (petits écrans)
+export function renderAnalysis(a, { label, history = [], hint = null, collapsed = false } = {}) {
   const bar = `<div class="eval-bar" title="Chances de gain estimées"><i style="width:${(a.verdict.pRed * 100).toFixed(1)}%"></i>
     <span class="l">Rouge ${pct(a.verdict.pRed)}</span><span class="r">${pct(1 - a.verdict.pRed)} Bleu</span></div>`;
   const reasons = a.reasons.map(r => `<li><span class="ic">${r.icon}</span><span>${r.html}</span></li>`).join('');
@@ -176,9 +190,11 @@ export function renderAnalysis(a, { label, history = [] } = {}) {
     ? `<ul class="alts">${a.alts.map((x, i) => `<li data-alt="${i}"><span>${esc(x.text)}</span><b>${esc(x.cost)}</b></li>`).join('')}</ul>`
     : '';
   const fmtNodes = n => (n >= 1e6 ? (n / 1e6).toFixed(1).replace('.', ',') + ' M' : n >= 1000 ? Math.round(n / 1000) + ' k' : String(n));
-  return `
-    <div class="coach-head"><span class="tag">${esc(label)}</span><span class="who" style="color:${DOT[a.side]}">${G.PLAYER_NAMES[a.side]}</span></div>
-    <div class="coach-move">${esc(a.title)}</div>
+  const head = hint
+    ? `<div class="hint-box"><div class="what">${esc(hint)}</div>
+        <div class="hint-cta"><button class="accent" id="coachPlayHint">Jouer ce coup</button><button class="ghost" id="coachShowHint">Montrer</button></div></div>`
+    : `<div class="coach-move">${esc(a.title)}</div>`;
+  const details = `
     ${bar}
     <p class="verdict">${a.verdict.text}</p>
     ${sparkline(history)}
@@ -186,6 +202,10 @@ export function renderAnalysis(a, { label, history = [] } = {}) {
     <h4>Suite prévue <button class="mini" id="coachPlanBtn">Voir sur le plateau</button></h4>${plan}
     ${alts ? `<h4>Coups écartés</h4>${alts}` : ''}
     <p class="muted foot">${plural(a.depth, 'coup')} d’avance · ${fmtNodes(a.nodes)} position${a.nodes > 1 ? 's' : ''} examinée${a.nodes > 1 ? 's' : ''}${a.noisy ? ' · à ce niveau, le bot ajoute volontairement du hasard' : ''}</p>`;
+  return `
+    <div class="coach-head"><span class="tag">${esc(label)}</span><span class="who" style="color:${DOT[a.side]}">${G.PLAYER_NAMES[a.side]}</span></div>
+    ${head}
+    ${collapsed ? `<details><summary>Détail de l’analyse</summary>${details}</details>` : details}`;
 }
 
 // courbe des chances de Rouge au fil de la partie
