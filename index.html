@@ -110,6 +110,7 @@
   .world-info { flex: 1; min-width: 0; }
   .world-name { font-family: var(--display); font-weight: 600; font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .world-sub { font-size: 12px; color: var(--gold); margin-top: 1px; }
+  .world-count { font-size: 10.5px; color: var(--muted); margin-top: 8px; letter-spacing: .02em; }
   .icon-btn { width: 32px; height: 32px; border-radius: 9px; border: 1px solid var(--line); background: var(--glass-2); font-size: 16px; flex: none; transition: transform .3s, background .15s; }
   .icon-btn:hover { background: rgba(255,255,255,.12); transform: rotate(-90deg); }
   .world-body { display: none; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
@@ -343,6 +344,7 @@
         <button class="icon-btn" id="btnReroll" title="Tirer un autre monde" aria-label="Tirer un autre monde">↻</button>
         <button class="mini" id="btnCustomize" aria-expanded="false">Personnaliser</button>
       </div>
+      <div class="world-count">25 769 803 776 mondes, parmi les 10⁵⁶ théoriques</div>
       <div class="world-body">
         <div class="label">Terrain</div>
         <div class="seg chips" data-key="terrain" id="terrainSeg"></div>
@@ -357,7 +359,6 @@
     <button class="primary play" id="btnStart">Jouer <span aria-hidden="true">→</span></button>
     <footer class="menu-foot">
       <button class="link" id="btnMenuRules">Règles du jeu</button>
-      <span>25 769 803 776 mondes possibles</span>
     </footer>
   </div>
 </div>
