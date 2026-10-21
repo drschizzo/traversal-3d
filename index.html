@@ -242,6 +242,8 @@
   .primary { width: 100%; margin-top: 8px; padding: 13px; border: 0; border-radius: 12px; background: linear-gradient(180deg, #f5cf7f, #d9a547); color: #2a1d05; font-weight: 700; font-size: 15px; letter-spacing: .03em; box-shadow: 0 6px 20px rgba(217,165,71,.35); }
   .primary:hover { filter: brightness(1.06); }
   .ghost { width: 100%; margin-top: 8px; padding: 11px; border: 1px solid var(--line); border-radius: 12px; background: transparent; font-weight: 500; }
+  .confirm { width: min(380px, 100%); text-align: center; }
+  .confirm p { margin: 8px 0 18px; color: var(--muted); }
   .rules { font-size: 13.5px; line-height: 1.6; color: #dadde4; }
   .rules h3 { font-family: var(--display); font-weight: 600; font-size: 15px; margin: 18px 0 4px; color: #fff; }
   .rules ul { margin: 4px 0; padding-left: 18px; }
@@ -351,8 +353,8 @@
       </div>
     </section>
 
+    <button class="primary play hidden" id="btnResume">Reprendre la partie <span aria-hidden="true">→</span></button>
     <button class="primary play" id="btnStart">Jouer <span aria-hidden="true">→</span></button>
-    <button class="ghost hidden" id="btnResume">Reprendre la partie</button>
     <footer class="menu-foot">
       <button class="link" id="btnMenuRules">Règles du jeu</button>
       <span>25 769 803 776 mondes possibles</span>
@@ -403,6 +405,15 @@
   </div>
 </div>
 
-<script type="module" src="./main.js?v=65"></script>
+<div id="confirm" class="modal hidden" role="alertdialog" aria-labelledby="confirmTitle">
+  <div class="panel glass confirm">
+    <h2 id="confirmTitle">Abandonner la partie ?</h2>
+    <p>La partie en cours sera perdue.</p>
+    <button class="primary" id="btnConfirmCancel">Continuer la partie</button>
+    <button class="ghost" id="btnConfirmOk">Abandonner</button>
+  </div>
+</div>
+
+<script type="module" src="./main.js?v=66"></script>
 </body>
 </html>

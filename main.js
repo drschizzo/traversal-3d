@@ -1244,8 +1244,10 @@ function turnCameraTo(side, dur = 1.1) {
 // ================================================================ état du jeu
 let state = null, history = [], selected = -1, selMoves = [], busy = false, gameToken = 0;
 let showHeights = false, viewSide = 0, autoRotateView = true;
+// cfg : choix du menu ; play : réglages de la partie en cours, figés à son lancement
 const cfg = { mode: 'bot', side: 0, level: 'medium', terrain: 'random' };
-const isHuman = t => cfg.mode === 'pvp' || (cfg.mode === 'bot' && t === cfg.side);
+const play = { mode: 'bot', side: 0, level: 'medium' };
+const isHuman = t => play.mode === 'pvp' || (play.mode === 'bot' && t === play.side);
 // bot contre bot : lecture automatique, pause, coup par coup
 let paused = false, stepOnce = false, botThinking = false, hintPending = false;
 // revue des coups déjà joués (bot contre bot) : viewPly = position affichée (null = en direct)
@@ -1256,19 +1258,74 @@ let coachOn = false, coachData = null, coachLabel = '', evalHistory = [], planSh
 // coups joués (état avant + coup), en parallèle de history, pour l'analyse de fin de partie
 let movesLog = [];
 
-let worldSeed = 0;
-function loadWorld() {
-  worldSeed = randSeed();
-  const h = G.generateTerrain(cfg.terrain, worldSeed);
-  state = G.newGame(h);
-  buildTerrain(h, cfg.terrain);
+// inGame : une partie a été lancée (ou restaurée) sur le monde affiché et n'a pas été abandonnée
+let worldSeed = 0, worldTerrain = 'random', inGame = false;
+// s : position à afficher (partie restaurée), sinon position de départ
+function loadWorld(seed = randSeed(), terrain = cfg.terrain, s = null) {
+  worldSeed = seed;
+  worldTerrain = terrain;
+  const h = s ? s.h : G.generateTerrain(terrain, seed);
+  state = s || G.newGame(h);
+  buildTerrain(h, terrain);
   buildPieces(state);
   riseTerrain(h);
   dropPieces();
-  const label = `Monde n° ${worldSeed.toLocaleString('fr-FR')} · ${G.TERRAIN_MODES.find(m => m[0] === cfg.terrain)[1]}`;
-  $('world').textContent = label;
-  $('menuWorld').textContent = `Monde n° ${worldSeed.toLocaleString('fr-FR')}`;
-  $('menuTerrain').textContent = G.TERRAIN_MODES.find(m => m[0] === cfg.terrain)[1];
+  const terrainName = G.TERRAIN_MODES.find(m => m[0] === terrain)[1];
+  $('world').textContent = `Monde n° ${seed.toLocaleString('fr-FR')} · ${terrainName}`;
+  $('menuWorld').textContent = `Monde n° ${seed.toLocaleString('fr-FR')}`;
+  $('menuTerrain').textContent = terrainName;
+}
+
+// remet les pièces au départ sur le monde affiché
+function resetBoard() {
+  if (state.ply === 0) return;
+  state = G.newGame(state.h);
+  syncPieces(state);
+  dropPieces(0.1);
+}
+
+const liveNow = () => (viewPly === null ? state : liveState);
+const gameActive = () => inGame && !!state && !liveNow().over;
+// une partie entamée (au moins un coup joué) serait perdue
+const gameAtStake = () => gameActive() && history.length > 0;
+
+// ---------------------------------------------------------------- sauvegarde de la partie en cours
+const SAVE_KEY = 'traversal.game';
+function saveGame() {
+  try {
+    if (!gameActive()) return localStorage.removeItem(SAVE_KEY);
+    const moves = movesLog.map(({ move: m }) => ({ pi: m.pi, kind: m.kind, to: m.to, special: m.special }));
+    localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 1, seed: worldSeed, terrain: worldTerrain, play, moves }));
+  } catch {}
+}
+
+// rejoue les coups sauvegardés sur le monde reconstruit à partir de sa graine ; false si la sauvegarde est inutilisable
+function restoreGame() {
+  let d = null;
+  try { d = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch {}
+  if (!d || d.v !== 1 || !G.TERRAIN_MODES.some(m => m[0] === d.terrain) || !Array.isArray(d.moves)) return false;
+  if (!['bot', 'pvp', 'bvb'].includes(d.play?.mode) || ![0, 1].includes(d.play.side) || !LEVEL_NAMES[d.play.level]) return false;
+  let s = G.newGame(G.generateTerrain(d.terrain, d.seed >>> 0));
+  const hist = [], log = [];
+  Object.assign(play, d.play);
+  for (const m of d.moves) {
+    const legal = !s.over && G.allMoves(s).find(x => x.pi === m.pi && x.kind === m.kind && x.to === m.to && x.special === m.special);
+    if (!legal) { try { localStorage.removeItem(SAVE_KEY); } catch {} return false; }
+    hist.push(s);
+    log.push({ before: s, move: legal, human: isHuman(s.turn) });
+    s = G.applyMove(s, legal);
+  }
+  if (s.over) return false;
+  Object.assign(cfg, play, { terrain: d.terrain });
+  syncMenuChoices();
+  loadWorld(d.seed >>> 0, d.terrain, s);
+  history = hist;
+  movesLog = log;
+  inGame = true;
+  setNames();
+  setCoach(play.mode === 'bvb');
+  updateControls();
+  return true;
 }
 
 const LEVEL_NAMES = { easy: 'Facile', medium: 'Moyen', hard: 'Difficile', expert: 'Expert' };
@@ -1284,29 +1341,42 @@ function newMatch() {
   viewPly = null;
   liveState = null;
   analyses.clear();
-  loadWorld();
+  resetBoard();
   clearSelection();
   clearPlan();
-  const bot = `Bot ${LEVEL_NAMES[cfg.level]}`;
-  $('name0').textContent = cfg.mode === 'bot' ? (cfg.side === 0 ? 'Joueur · Rouge' : `${bot} · Rouge`) : cfg.mode === 'bvb' ? bot : 'Rouge';
-  $('name1').textContent = cfg.mode === 'bot' ? (cfg.side === 1 ? 'Joueur · Bleu' : `${bot} · Bleu`) : cfg.mode === 'bvb' ? bot : 'Bleu';
-  setCoach(cfg.mode === 'bvb');
+  inGame = true;
+  setNames();
+  setCoach(play.mode === 'bvb');
   updateControls();
 }
 
+function setNames() {
+  const bot = `Bot ${LEVEL_NAMES[play.level]}`;
+  $('name0').textContent = play.mode === 'bot' ? (play.side === 0 ? 'Joueur · Rouge' : `${bot} · Rouge`) : play.mode === 'bvb' ? bot : 'Rouge';
+  $('name1').textContent = play.mode === 'bot' ? (play.side === 1 ? 'Joueur · Bleu' : `${bot} · Bleu`) : play.mode === 'bvb' ? bot : 'Bleu';
+}
+
+// lance une nouvelle partie sur le monde affiché, avec les réglages choisis dans le menu
 function startGame() {
+  Object.assign(play, { mode: cfg.mode, side: cfg.side, level: cfg.level });
   newMatch();
+  saveGame();
+  enterGame();
+}
+
+// quitte le menu pour la partie : HUD, caméra du côté du joueur, puis premier tour
+function enterGame(delay = riseAnim ? 1900 : 900) {
   $('menu').classList.add('hidden');
   updateMenuShift();
   $('hud').classList.remove('hidden');
   layoutHud();
   controls.autoRotate = false;
-  viewSide = cfg.mode === 'bot' ? cfg.side : 0;
+  viewSide = play.mode === 'bot' ? play.side : 0;
   turnCameraTo(viewSide, 1.4);
   busy = true;
-  setStatus('Matérialisation du monde…', 0);
+  setStatus(riseAnim ? 'Matérialisation du monde…' : 'La partie commence…', 0);
   const token = gameToken;
-  wait(1900).then(() => { if (token === gameToken) nextTurn(); });
+  wait(delay).then(() => { if (token === gameToken) nextTurn(); });
 }
 
 // ---------------------------------------------------------------- bot (Web Worker)
@@ -1319,7 +1389,7 @@ try {
 } catch { worker = null; }
 
 // demande un coup au bot ; avec analyze, la réponse contient aussi info (évaluation, variante, alternatives)
-function askBot(s, level = cfg.level, analyze = coachOn || cfg.mode === 'bvb') {
+function askBot(s, level = play.level, analyze = coachOn || play.mode === 'bvb') {
   return new Promise(res => {
     const fallback = () => setTimeout(() => res({ move: chooseMove(s, level === 'expert' ? 'hard' : level) }), 20);
     if (!worker) return fallback();
@@ -1337,11 +1407,11 @@ async function nextTurn() {
   if (isHuman(state.turn)) {
     busy = false;
     updateControls();
-    if (cfg.mode === 'pvp' && autoRotateView && viewSide !== state.turn) { viewSide = state.turn; turnCameraTo(viewSide); }
+    if (play.mode === 'pvp' && autoRotateView && viewSide !== state.turn) { viewSide = state.turn; turnCameraTo(viewSide); }
     setStatus(`À ${state.turn === 0 ? 'Rouge' : 'Bleu'} de jouer — choisir une pièce`, state.turn);
     return;
   }
-  if (cfg.mode === 'bvb' && paused && !stepOnce) {
+  if (play.mode === 'bvb' && paused && !stepOnce) {
     busy = false;
     updateControls();
     setStatus(`En pause — à ${G.PLAYER_NAMES[state.turn]} de jouer · ⏵ pour reprendre, ◀ pour revoir`, state.turn);
@@ -1351,7 +1421,7 @@ async function nextTurn() {
   busy = true;
   botThinking = true;
   updateControls();
-  setStatus(cfg.level === 'expert' ? 'Le bot réfléchit en profondeur…' : 'Le bot réfléchit…', state.turn, true);
+  setStatus(play.level === 'expert' ? 'Le bot réfléchit en profondeur…' : 'Le bot réfléchit…', state.turn, true);
   const t0 = performance.now();
   const token = gameToken, before = state;
   const { move, info } = await askBot(state);
@@ -1366,7 +1436,7 @@ async function nextTurn() {
     renderCoach();
   }
   const elapsed = performance.now() - t0;
-  const minDelay = cfg.mode === 'bvb' ? 1100 : 650; // laisser le temps de lire l'analyse
+  const minDelay = play.mode === 'bvb' ? 1100 : 650; // laisser le temps de lire l'analyse
   if (elapsed < minDelay) await wait(minDelay - elapsed);
   if (token !== gameToken || !move) return;
   await performMove(move);
@@ -1381,6 +1451,7 @@ async function performMove(m) {
   history.push(before);
   movesLog.push({ before, move: m, human: isHuman(before.turn) });
   state = G.applyMove(before, m);
+  saveGame();
   setStatus(describeMove(before, m), before.turn);
   animating = true;
   updateControls();
@@ -1399,11 +1470,12 @@ function describeMove(s, m) {
 }
 
 function undo() {
-  if (!history.length || reviewing || cfg.mode === 'bvb' || busy) return;
+  if (!history.length || reviewing || play.mode === 'bvb' || busy) return;
   gameToken++;
   do { state = history.pop(); } while (history.length && !isHuman(state.turn));
   if (!isHuman(state.turn)) { history.push(state); state = history.pop(); }
   movesLog.length = history.length;
+  saveGame();
   evalHistory = evalHistory.filter(h => h.ply < state.ply);
   clearSelection();
   syncPieces(state);
@@ -1413,10 +1485,10 @@ function undo() {
 // ---------------------------------------------------------------- contrôles bot contre bot et conseil
 const viewIndex = () => viewPly ?? history.length;
 // navigation possible : bot contre bot, hors analyse de partie et hors animation d'un coup
-const canNavigate = () => cfg.mode === 'bvb' && !reviewing && !animating && !!state;
+const canNavigate = () => play.mode === 'bvb' && !reviewing && !animating && !!state;
 
 function updateControls() {
-  const bvb = cfg.mode === 'bvb', k = viewIndex(), n = history.length, nav = canNavigate();
+  const bvb = play.mode === 'bvb', k = viewIndex(), n = history.length, nav = canNavigate();
   for (const id of ['btnFirst', 'btnPrev', 'btnPlay', 'btnNext', 'btnLast']) $(id).classList.toggle('hidden', !bvb);
   $('btnUndo').classList.toggle('hidden', bvb);
   $('btnHint').classList.toggle('hidden', bvb);
@@ -1502,7 +1574,7 @@ async function hint() {
   setCoach(true);
   $('coach').innerHTML = '<div class="coach-wait"><span class="spinner"></span> Le bot analyse la position…</div>';
   const token = gameToken, before = state;
-  const { move, info } = await askBot(before, cfg.level === 'expert' ? 'expert' : 'hard', true);
+  const { move, info } = await askBot(before, play.level === 'expert' ? 'expert' : 'hard', true);
   hintPending = false;
   updateControls();
   if (token !== gameToken || state !== before) { renderCoach(); return; }
@@ -1530,7 +1602,7 @@ function renderCoach() {
   if (!coachOn) return;
   if (!coachData) {
     el.innerHTML = `<div class="coach-head"><span class="tag">Analyse</span></div>
-      <p class="muted">${cfg.mode === 'bvb' ? 'L’explication de chaque coup du bot s’affichera ici.' : 'Ici s’affiche le raisonnement du bot après chacun de ses coups. Au tour du joueur, « Conseil » montre le coup que le bot jouerait dans la position.'}</p>`;
+      <p class="muted">${play.mode === 'bvb' ? 'L’explication de chaque coup du bot s’affichera ici.' : 'Ici s’affiche le raisonnement du bot après chacun de ses coups. Au tour du joueur, « Conseil » montre le coup que le bot jouerait dans la position.'}</p>`;
     return;
   }
   el.innerHTML = renderAnalysis(coachData, { label: coachLabel, history: evalHistory });
@@ -1774,11 +1846,11 @@ function showGameOver() {
   const w = state.winner;
   let title;
   if (w === 2) title = 'Match nul';
-  else if (cfg.mode === 'bot') title = w === cfg.side ? 'Victoire' : 'Défaite';
+  else if (play.mode === 'bot') title = w === play.side ? 'Victoire' : 'Défaite';
   else title = `${G.PLAYER_NAMES[w]} l’emporte`;
   $('overTitle').textContent = title;
   // couleur d'ambiance : le gagnant (or pour un nul, gris pour une défaite contre le bot)
-  const lostVsBot = cfg.mode === 'bot' && w !== 2 && w !== cfg.side;
+  const lostVsBot = play.mode === 'bot' && w !== 2 && w !== play.side;
   $('overCard').style.setProperty('--win', w === 2 ? '#f2c46d' : lostVsBot ? '#9aa1b2' : TEAM[w].css);
   $('overReason').textContent = state.reason + '.';
   const glyphs = (o, st) => state.pieces.filter(p => p.o === o && p.st === st).map(p => G.TYPE_GLYPHS[p.t]).join('');
@@ -1826,8 +1898,8 @@ async function startReview() {
 
 function renderReview() {
   const done = reviewItems.filter(Boolean).length, total = reviewItems.length;
-  const names = cfg.mode === 'bot' ? ['Rouge', 'Bleu'].map((n, o) => (o === cfg.side ? `Joueur (${n})` : `Bot (${n})`)) : ['Rouge', 'Bleu'];
-  const sides = cfg.mode === 'bot' ? [cfg.side] : [0, 1];
+  const names = play.mode === 'bot' ? ['Rouge', 'Bleu'].map((n, o) => (o === play.side ? `Joueur (${n})` : `Bot (${n})`)) : ['Rouge', 'Bleu'];
+  const sides = play.mode === 'bot' ? [play.side] : [0, 1];
   const r = reviewSel >= 0 ? reviewItems[reviewSel] : null;
   $('review').innerHTML = `
     <div class="rv-head"><b>Analyse de la partie</b><button class="mini" id="rvClose">Fermer</button></div>
@@ -1886,17 +1958,28 @@ $('themeSeg').querySelectorAll('button').forEach(b => {
   b.addEventListener('mouseenter', () => showThemeName(b.dataset.v));
   b.addEventListener('mouseleave', () => showThemeName(theme.id));
 });
+const showModeOptions = () => {
+  document.querySelectorAll('.bot-only').forEach(el => el.classList.toggle('hidden', cfg.mode !== 'bot'));
+  document.querySelectorAll('.bots-only').forEach(el => el.classList.toggle('hidden', cfg.mode === 'pvp'));
+};
+// reflète cfg dans les sélecteurs du menu (après restauration d'une partie)
+function syncMenuChoices() {
+  document.querySelectorAll('.seg[data-key]').forEach(seg => {
+    const key = seg.dataset.key;
+    if (key in cfg) seg.querySelectorAll('button').forEach(x => x.classList.toggle('sel', x.dataset.v === String(cfg[key])));
+  });
+  showModeOptions();
+}
 document.querySelectorAll('.seg').forEach(seg => {
-  seg.addEventListener('click', e => {
+  seg.addEventListener('click', async e => {
     const b = e.target.closest('button');
     if (!b) return;
-    seg.querySelectorAll('button').forEach(x => x.classList.toggle('sel', x === b));
     const key = seg.dataset.key;
+    // changer de terrain tire un nouveau monde : la partie en cours serait perdue
+    if (key === 'terrain' && (b.classList.contains('sel') || !(await confirmAbandon()))) return;
+    seg.querySelectorAll('button').forEach(x => x.classList.toggle('sel', x === b));
     cfg[key] = key === 'side' ? Number(b.dataset.v) : b.dataset.v;
-    if (key === 'mode') {
-      document.querySelectorAll('.bot-only').forEach(el => el.classList.toggle('hidden', cfg.mode !== 'bot'));
-      document.querySelectorAll('.bots-only').forEach(el => el.classList.toggle('hidden', cfg.mode === 'pvp'));
-    }
+    if (key === 'mode') showModeOptions();
     if (key === 'terrain') previewTerrain();
     if (key === 'theme') { applyTheme(b.dataset.v); showThemeName(theme.id); }
   });
@@ -1907,8 +1990,55 @@ function previewTerrain() {
   loadWorld();
 }
 
+// avant une action qui remplace la partie entamée : confirmation, puis abandon de la partie
+let confirmResolve = null;
+function confirmAbandon() {
+  if (!gameAtStake()) {
+    if (inGame) abandonGame();
+    return Promise.resolve(true);
+  }
+  $('confirm').classList.remove('hidden');
+  $('btnConfirmCancel').focus();
+  return new Promise(res => { confirmResolve = res; });
+}
+function closeConfirm(ok) {
+  $('confirm').classList.add('hidden');
+  if (ok) abandonGame();
+  confirmResolve?.(ok);
+  confirmResolve = null;
+}
+$('btnConfirmOk').onclick = () => closeConfirm(true);
+$('btnConfirmCancel').onclick = () => closeConfirm(false);
+
+function abandonGame() {
+  gameToken++;
+  if (viewPly !== null) { state = liveState; viewPly = null; }
+  closeReview(false);
+  inGame = false;
+  busy = false;
+  paused = false;
+  history = [];
+  movesLog = [];
+  saveGame();
+  clearSelection();
+  clearPlan();
+  $('hud').classList.add('hidden');
+  controls.autoRotate = true;
+  updateMenuButtons();
+}
+
+// partie en cours : « Reprendre » devient l'action principale, « Jouer » propose une nouvelle partie
+function updateMenuButtons() {
+  const active = gameActive();
+  $('btnResume').classList.toggle('hidden', !active);
+  $('btnStart').classList.toggle('primary', !active);
+  $('btnStart').classList.toggle('play', !active);
+  $('btnStart').classList.toggle('ghost', active);
+  $('btnStart').innerHTML = active ? 'Nouvelle partie' : 'Jouer <span aria-hidden="true">→</span>';
+}
+
 function openMenu() {
-  $('btnResume').classList.toggle('hidden', !state || state.over || $('hud').classList.contains('hidden'));
+  updateMenuButtons();
   $('menu').classList.remove('hidden');
   updateMenuShift();
 }
@@ -1927,20 +2057,25 @@ function updateMenuShift(animated = true) {
   tween(0.8, k => { if (id === shiftTween) applyViewShift(from + (to - from) * easeIO(k)); });
 }
 
-$('btnStart').onclick = startGame;
+$('btnStart').onclick = async () => { if (await confirmAbandon()) startGame(); };
 $('btnCustomize').onclick = () => {
   const open = $('worldCard').classList.toggle('open');
   $('btnCustomize').setAttribute('aria-expanded', open);
   $('btnCustomize').textContent = open ? 'Fermer' : 'Personnaliser';
 };
-$('btnReroll').onclick = previewTerrain;
+$('btnReroll').onclick = async () => { if (await confirmAbandon()) previewTerrain(); };
 function showQualityChoice() {
   document.querySelectorAll('#qualitySeg button').forEach(b => b.classList.toggle('sel', b.dataset.v === qualityPref));
   $('qualityAuto').textContent = qualityPref === 'auto' ? `Auto · ${Q.name}` : 'Auto';
 }
 $('qualitySeg').onclick = e => { const b = e.target.closest('button'); if (b) setQualityPref(b.dataset.v); };
 showQualityChoice();
-$('btnResume').onclick = () => { $('menu').classList.add('hidden'); updateMenuShift(); };
+$('btnResume').onclick = () => {
+  // partie restaurée au chargement : on y entre ; sinon on referme simplement le menu
+  if ($('hud').classList.contains('hidden')) return enterGame(600);
+  $('menu').classList.add('hidden');
+  updateMenuShift();
+};
 $('btnMenu').onclick = openMenu;
 $('btnMenuRules').onclick = $('btnRules').onclick = () => $('rules').classList.remove('hidden');
 $('btnCloseRules').onclick = () => $('rules').classList.add('hidden');
@@ -1951,12 +2086,17 @@ $('btnHeights').onclick = () => {
   $('btnHeights').classList.toggle('on', showHeights);
   if (heightLabels) heightLabels.visible = showHeights;
 };
-$('btnAgain').onclick = () => { $('over').classList.add('hidden'); startGame(); };
-$('btnOverMenu').onclick = () => { $('over').classList.add('hidden'); $('hud').classList.add('hidden'); controls.autoRotate = true; openMenu(); };
+$('btnAgain').onclick = () => { $('over').classList.add('hidden'); previewTerrain(); startGame(); };
+// retour au menu après la partie : le même monde, pièces au départ, prêt pour une revanche
+$('btnOverMenu').onclick = () => { $('over').classList.add('hidden'); abandonGame(); resetBoard(); openMenu(); };
 $('btnOverBoard').onclick = () => $('over').classList.add('hidden');
 addEventListener('keydown', e => {
-  if (e.key === 'Escape') { clearSelection(); $('rules').classList.add('hidden'); }
-  if (cfg.mode === 'bvb' && !$('hud').classList.contains('hidden') && $('menu').classList.contains('hidden')) {
+  if (e.key === 'Escape') {
+    if (!$('confirm').classList.contains('hidden')) return closeConfirm(false);
+    clearSelection();
+    $('rules').classList.add('hidden');
+  }
+  if (play.mode === 'bvb' && !$('hud').classList.contains('hidden') && $('menu').classList.contains('hidden')) {
     if (e.key === 'ArrowLeft') goTo(viewIndex() - 1);
     if (e.key === 'ArrowRight') $('btnNext').click();
   }
@@ -1978,7 +2118,8 @@ addEventListener('resize', () => {
 // ================================================================ boucle
 controls.autoRotate = true;
 controls.autoRotateSpeed = 0.5;
-previewTerrain();
+if (!restoreGame()) previewTerrain();
+updateMenuButtons();
 updateMenuShift(false);
 
 // ---------------------------------------------------------------- changement de niveau de qualité
