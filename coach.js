@@ -177,7 +177,7 @@ export function explain(before, move, info, { judged = false } = {}) {
 
 // ---------------------------------------------------------------- rendu HTML du panneau
 const DOT = ['#e0484f', '#4d8cf0'];
-// hint : mise en avant du coup conseillé (phrase, boutons « Jouer ce coup » et « Montrer ») ;
+// hint : mise en avant du coup conseillé (phrase et bouton « Jouer ce coup ») ;
 // collapsed : le détail de l'analyse est replié (petits écrans)
 export function renderAnalysis(a, { label, history = [], hint = null, collapsed = false } = {}) {
   const bar = `<div class="eval-bar" title="Chances de gain estimées"><i style="width:${(a.verdict.pRed * 100).toFixed(1)}%"></i>
@@ -192,7 +192,7 @@ export function renderAnalysis(a, { label, history = [], hint = null, collapsed 
   const fmtNodes = n => (n >= 1e6 ? (n / 1e6).toFixed(1).replace('.', ',') + ' M' : n >= 1000 ? Math.round(n / 1000) + ' k' : String(n));
   const head = hint
     ? `<div class="hint-box"><div class="what">${esc(hint)}</div>
-        <div class="hint-cta"><button class="accent" id="coachPlayHint">Jouer ce coup</button><button class="ghost" id="coachShowHint">Montrer</button></div></div>`
+        <div class="hint-cta"><button class="accent" id="coachPlayHint">Jouer ce coup</button></div></div>`
     : `<div class="coach-move">${esc(a.title)}</div>`;
   const details = `
     ${bar}

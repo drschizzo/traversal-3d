@@ -72,7 +72,9 @@ controls.dampingFactor = 0.08;
 controls.minDistance = 7;
 controls.maxDistance = 34;
 controls.maxPolarAngle = Math.PI * 0.3;   // l'horizon reste hors champ
-controls.enablePan = false;
+controls.enablePan = true;
+controls.screenSpacePanning = false;   // deux doigts (ou clic droit) : le plateau glisse dans son plan
+controls.panSpeed = 0.9;
 
 // téléphones (paysage ou portrait) : mêmes seuils que la feuille de style
 const compactMQ = matchMedia('(orientation: landscape) and (max-height: 500px), (orientation: portrait) and (max-width: 500px)');
@@ -1109,18 +1111,27 @@ scene.add(hintMark);
 let pathMesh = null;
 const pathMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
 
+const exitHitGeo = new THREE.PlaneGeometry(1, 2);
 function showOverlays(moves) {
   overlayGroup.clear();
+  const arrow = matchMedia('(pointer: coarse)').matches ? 0.85 : 0.62;
   for (const m of moves) {
     const isExit = m.kind === 'exit';
     const mat = new THREE.MeshBasicMaterial({ map: isExit ? TEX.arrow : TEX.tile, color: COLORS[m.kind], transparent: true, opacity: m.kind === 'move' ? 0.8 : 0.9, depthWrite: false });
-    const mesh = new THREE.Mesh(isExit ? new THREE.PlaneGeometry(0.62, 0.62) : tileGeo, mat);
+    const mesh = new THREE.Mesh(isExit ? new THREE.PlaneGeometry(arrow, arrow) : tileGeo, mat);
     mesh.rotation.x = -Math.PI / 2;
     const [x, z] = cellXZ(m.to);
     if (isExit) {
       const o = state.pieces[m.pi].o;
       mesh.rotation.z = o === 0 ? 0 : Math.PI;
       mesh.position.set(x, 0.06, o === 0 ? -5.6 : 5.6);
+      // invisible mais touchée par le rayon : toute la bande au-delà du bord, dans la colonne de la pièce
+      const hit = new THREE.Mesh(exitHitGeo, mat);
+      hit.visible = false;
+      hit.rotation.x = -Math.PI / 2;
+      hit.position.set(x, 0.06, o === 0 ? -6 : 6);
+      hit.userData = { move: m, baseOpacity: mat.opacity };
+      overlayGroup.add(hit);
     } else mesh.position.set(x, topY(state.h[m.to]) + 0.015, z);
     mesh.userData.move = m;
     mesh.userData.baseOpacity = mat.opacity;
@@ -1247,6 +1258,57 @@ async function animateMove(m, before) {
 }
 
 // rotation douce de la caméra vers un camp
+// déplacement de la vue (cible et caméra ensemble) ; le centre de la vue reste au-dessus du plateau
+const PAN_MAX = 4;
+const clampPan = v => Math.max(-PAN_MAX, Math.min(PAN_MAX, v));
+function panTo(x, z, dur = 0.45) {
+  const from = controls.target.clone(), to = new THREE.Vector3(clampPan(x), from.y, clampPan(z));
+  const at = from.clone(), step = new THREE.Vector3();
+  return tween(dur, k => {
+    step.lerpVectors(from, to, easeIO(k)).sub(at);
+    at.add(step);
+    controls.target.add(step);
+    camera.position.add(step);
+  });
+}
+// Fait glisser la vue du minimum nécessaire pour que ces cases soient à l'écran, hors des colonnes du HUD :
+// on essaie des fractions croissantes du chemin vers leur centre et on garde la première qui suffit.
+const probeCam = new THREE.PerspectiveCamera(), probe = new THREE.Vector3();
+function revealCells(cells) {
+  const pts = cells.map(i => { const [x, z] = cellXZ(i); return [x, topY(state.h[i]), z]; });
+  const mid = k => (Math.min(...pts.map(q => q[k])) + Math.max(...pts.map(q => q[k]))) / 2;
+  const cx = mid(0), cz = mid(2), t = controls.target;
+  // zone confortable : à l'écart des bords (et des colonnes du HUD en paysage), le doigt n'y cache rien
+  const side = compactMQ.matches && innerWidth > innerHeight ? 190 : 40, my = Math.max(48, innerHeight * 0.14);
+  const box = [side, my, innerWidth - side, innerHeight - my];
+  const fits = (dx, dz) => {
+    probeCam.copy(camera);
+    probeCam.position.x += dx; probeCam.position.z += dz;
+    probeCam.updateMatrixWorld();
+    return pts.every(([x, y, z]) => {
+      probe.set(x, y, z).project(probeCam);
+      const sx = (probe.x + 1) / 2 * innerWidth, sy = (1 - probe.y) / 2 * innerHeight;
+      return sx >= box[0] && sx <= box[2] && sy >= box[1] && sy <= box[3];
+    });
+  };
+  for (let f = 0; f <= 1.001; f += 0.1) {
+    const dx = (cx - t.x) * f, dz = (cz - t.z) * f;
+    if (fits(dx, dz)) return void (f > 0 && panTo(t.x + dx, t.z + dz));
+  }
+  panTo(cx, cz);
+}
+
+// à chaque image : la vue ne sort pas du plateau, et revient au centre quand on dézoome complètement
+const panFix = new THREE.Vector3();
+function keepPanInBounds() {
+  const t = controls.target;
+  panFix.set(clampPan(t.x) - t.x, 0, clampPan(t.z) - t.z);
+  if (camera.position.distanceTo(t) > controls.maxDistance * 0.97) panFix.set(-t.x * 0.12, 0, -t.z * 0.12);
+  if (panFix.lengthSq() < 1e-8) return;
+  t.add(panFix);
+  camera.position.add(panFix);
+}
+
 function turnCameraTo(side, dur = 1.1) {
   const off = camera.position.clone().sub(controls.target);
   const sph = new THREE.Spherical().setFromVector3(off);
@@ -1275,6 +1337,8 @@ let viewPly = null, liveState = null, animating = false;
 const analyses = new Map(); // analyse de chaque coup du bot, par ply
 // panneau d'analyse : explication du dernier coup du bot (ou du conseil demandé) et courbe d'évaluation
 let coachOn = false, coachData = null, coachLabel = '', evalHistory = [], planShown = false;
+// le panneau d'analyse a été ouvert par « Conseil » : il se referme une fois le coup du joueur joué
+let coachForHint = false;
 // coups joués (état avant + coup), en parallèle de history, pour l'analyse de fin de partie
 let movesLog = [];
 
@@ -1393,6 +1457,7 @@ function enterGame(delay = riseAnim ? 1900 : 900) {
   layoutHud();
   controls.autoRotate = false;
   viewSide = play.mode === 'bot' ? play.side : 0;
+  panTo(0, 0, 0.8);
   turnCameraTo(viewSide, 1.4);
   busy = true;
   setStatus(riseAnim ? 'Matérialisation du monde…' : 'La partie commence…', 0);
@@ -1467,6 +1532,7 @@ async function performMove(m) {
   busy = true;
   const token = gameToken;
   clearHint();
+  if (coachForHint && isHuman(state.turn)) setCoach(false);
   clearSelection();
   clearPlan();
   const before = state;
@@ -1595,7 +1661,9 @@ async function hint() {
   hintPending = true;
   clearHint();
   updateControls();
+  const wasOpen = coachOn;
   setCoach(true);
+  coachForHint = !wasOpen;
   $('coach').innerHTML = '<div class="coach-wait"><span class="spinner"></span> Le bot analyse la position…</div>';
   const token = gameToken, before = state;
   const { move, info } = await askBot(before, play.level === 'expert' ? 'expert' : 'hard', true);
@@ -1613,6 +1681,7 @@ $('btnHint').onclick = hint;
 // ---------------------------------------------------------------- panneau d'analyse
 function setCoach(on) {
   coachOn = on;
+  coachForHint = false;
   $('btnCoach').classList.toggle('on', on);
   $('coach').classList.toggle('hidden', !on);
   $('legend').classList.toggle('hidden', on);
@@ -1636,7 +1705,6 @@ function renderCoach() {
   updateMenuShift();
   if (hint) {
     $('coachPlayHint').onclick = () => { if (hintMove && !busy && isHuman(state.turn)) performMove(hintMove); };
-    $('coachShowHint').onclick = () => { if (hintMove) showHint(hintMove); };
   }
   const btn = $('coachPlanBtn');
   if (btn) {
@@ -1708,13 +1776,18 @@ function select(pi) {
   selMoves = G.pieceMoves(state, pi);
   showOverlays(selMoves);
   showCard(pi);
+  // au doigt et zoomé : la vue glisse juste assez pour montrer la pièce et ses cases accessibles
+  if (lastPointer !== 'mouse' && camera.position.distanceTo(controls.target) < controls.maxDistance * 0.9) {
+    const p = state.pieces[pi];
+    revealCells([G.idx(p.x, p.y), ...selMoves.map(m => m.to)]);
+  }
 }
 function clearSelection() {
   if (selected >= 0 && state) {
     const p = state.pieces[selected];
     if (p.st === G.ON_BOARD) pieceObjs[selected].grp.position.y = topY(state.h[G.idx(p.x, p.y)]);
   }
-  selected = -1; selMoves = []; armed = null;
+  selected = -1; selMoves = [];
   shadowDirty = true;
   overlayGroup.clear();
   showPath(hintMove);
@@ -1749,36 +1822,46 @@ function pick(ev) {
   return res;
 }
 
-let downAt = null, toolsWereOpen = false;
-// au toucher, pas de survol : le coup visé (armed) attend un second appui
-let armed = null;
-const sameMove = (a, b) => !!a && !!b && a.pi === b.pi && a.kind === b.kind && a.to === b.to && a.special === b.special;
+// Au toucher, pas de survol : tant que le doigt est posé sur une case, son chemin s'affiche ;
+// relâcher joue le coup, glisser l'annule (et tourne la vue), un second doigt aussi (zoom, déplacement).
+let downAt = null, toolsWereOpen = false, lastPointer = 'mouse';
+const fingers = new Set();
+const isTouch = e => e.pointerType === 'touch' || e.pointerType === 'pen';
+function cancelTap() {
+  downAt = null;
+  hideTip();
+  showPath(hintMove);
+}
 canvas.addEventListener('pointerdown', e => {
-  downAt = [e.clientX, e.clientY];
+  lastPointer = e.pointerType;
   toolsWereOpen = $('hud').classList.contains('tools-open');
   setTools(false);
+  if (isTouch(e)) {
+    fingers.add(e.pointerId);
+    if (fingers.size > 1) return cancelTap();
+  }
+  downAt = [e.clientX, e.clientY];
+  if (isTouch(e) && !toolsWereOpen && selected >= 0 && canPlay()) onHover(e);
 });
+const releaseFinger = e => fingers.delete(e.pointerId);
+canvas.addEventListener('pointercancel', e => { releaseFinger(e); cancelTap(); });
 canvas.addEventListener('pointerup', e => {
+  releaseFinger(e);
   if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 6) return;
   downAt = null;
-  if (toolsWereOpen) return;
-  if (!state || busy || reviewing || state.over || !isHuman(state.turn)) return;
+  if (toolsWereOpen || !canPlay()) return;
   const h = pick(e);
-  if (h.move && selected >= 0) {
-    // premier appui sur une case : chemin et détail (coût, combat) comme au survol ; le second joue le coup
-    if (e.pointerType !== 'mouse' && !sameMove(h.move, armed)) {
-      onHover(e);
-      armed = h.move;
-      $('tip').insertAdjacentHTML('beforeend', '<div class="tap-again">Toucher à nouveau pour jouer</div>');
-      return;
-    }
-    return void performMove(h.move);
-  }
+  if (h.move && selected >= 0) return void performMove(h.move);
   if (h.pi >= 0 && state.pieces[h.pi].o === state.turn) return void (h.pi === selected ? clearSelection() : select(h.pi));
   clearSelection();
 });
+const canPlay = () => !!state && !busy && !reviewing && !state.over && isHuman(state.turn);
 let pendingMove = null;
 canvas.addEventListener('pointermove', e => {
+  if (isTouch(e)) {
+    if (downAt && Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 6) cancelTap();
+    return;
+  }
   if (!pendingMove) requestAnimationFrame(() => { const ev = pendingMove; pendingMove = null; onHover(ev); });
   pendingMove = e;
 });
@@ -1849,6 +1932,27 @@ const KEEP_TOOLS = ['btnFirst', 'btnPrev', 'btnPlay', 'btnNext', 'btnLast'];
 $('toolbar').addEventListener('click', e => { const b = e.target.closest('button'); if (b && !KEEP_TOOLS.includes(b.id)) setTools(false); });
 compactMQ.addEventListener?.('change', () => { setTools(false); layoutHud(); renderCoach(); updateMenuShift(false); });
 
+// plein écran : bouton dans la barre d'outils, et automatique au lancement d'une partie sur téléphone.
+// L'iPhone n'autorise pas une page en plein écran : seul l'ajout à l'écran d'accueil masque la barre d'adresse.
+const root = document.documentElement;
+const canFullscreen = !!(root.requestFullscreen || root.webkitRequestFullscreen);
+const installed = matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || navigator.standalone === true;
+const isFullscreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+function enterFullscreen() {
+  const req = root.requestFullscreen || root.webkitRequestFullscreen;
+  try { Promise.resolve(req.call(root, { navigationUI: 'hide' })).catch(() => {}); } catch {}
+}
+function toggleFullscreen() {
+  if (isFullscreen()) return void (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  if (canFullscreen) return enterFullscreen();
+  toast('Pour jouer en plein écran : bouton Partager, puis « Sur l’écran d’accueil »');
+}
+function autoFullscreen() { if (compactMQ.matches && canFullscreen && !installed && !isFullscreen()) enterFullscreen(); }
+$('btnFull').classList.toggle('hidden', installed);
+$('btnFull').onclick = toggleFullscreen;
+for (const ev of ['fullscreenchange', 'webkitfullscreenchange'])
+  document.addEventListener(ev, () => { $('btnFull').classList.toggle('on', isFullscreen()); layoutHud(); });
+
 // portrait sur téléphone : invitation à passer en paysage ; une fois écartée, elle ne revient plus
 try { if (localStorage.getItem('traversal.rotateOk')) $('rotateHint').classList.add('dismissed'); } catch {}
 $('btnRotateOk').onclick = () => {
@@ -1892,7 +1996,9 @@ function showCard(pi) {
   card.classList.remove('hidden-soft');
 }
 
+// au doigt, pas d'infobulle : le chemin tracé sous le doigt suffit
 function showTip(html, e) {
+  if (isTouch(e)) return hideTip();
   const tip = $('tip');
   tip.innerHTML = html;
   tip.classList.remove('hidden');
@@ -2137,6 +2243,7 @@ function updateMenuButtons() {
 }
 
 function openMenu() {
+  panTo(0, 0, 0.8);
   updateMenuButtons();
   $('menu').classList.remove('hidden');
   updateMenuShift();
@@ -2179,7 +2286,10 @@ function updateMenuShift(animated = true) {
   tween(0.8, k => { if (id === shiftTween) applyViewShift(from + (to - from) * easeIO(k)); });
 }
 
-$('btnStart').onclick = async () => { if (await confirmAbandon()) startGame(); };
+$('btnStart').onclick = async () => {
+  autoFullscreen(); // avant toute attente : le navigateur n'accepte le plein écran que pendant le geste
+  if (await confirmAbandon()) startGame();
+};
 $('btnCustomize').onclick = () => {
   const open = $('worldCard').classList.toggle('open');
   $('btnCustomize').setAttribute('aria-expanded', open);
@@ -2193,6 +2303,7 @@ function showQualityChoice() {
 $('qualitySeg').onclick = e => { const b = e.target.closest('button'); if (b) setQualityPref(b.dataset.v); };
 showQualityChoice();
 $('btnResume').onclick = () => {
+  autoFullscreen();
   // partie restaurée au chargement : on y entre ; sinon on referme simplement le menu
   if ($('hud').classList.contains('hidden')) return enterGame(600);
   $('menu').classList.add('hidden');
@@ -2356,6 +2467,7 @@ renderer.setAnimationLoop(() => {
   // ombres recalculées à la demande ; la pièce sélectionnée qui flotte n'impose pas un recalcul à chaque image
   if (tweens.length || riseAnim || shadowDirty || (selected >= 0 && frameNo % Q.shadowEvery === 0)) { renderer.shadowMap.needsUpdate = true; shadowDirty = false; }
   stepRise(dt);
+  keepPanInBounds();
   controls.update();
   if (fieldNeedsRender()) renderField();
   if (Q.post) composer.render();

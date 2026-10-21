@@ -2,8 +2,16 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Traversal 3D</title>
+<!-- ajouté à l'écran d'accueil, le jeu s'ouvre en plein écran (seul moyen de masquer la barre d'adresse sur iPhone) -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Traversal">
+<meta name="theme-color" content="#1b1e26">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -72,7 +80,6 @@
   #tip table { border-collapse: collapse; }
   #tip td { padding: 0 6px 0 0; }
   #tip td.n { text-align: right; font-weight: 600; }
-  #tip .tap-again { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); color: #ffd36b; font-weight: 600; }
 
   .float { position: fixed; font-family: var(--display); font-weight: 700; font-size: 34px; pointer-events: none; text-shadow: 0 3px 14px rgba(0,0,0,.5); animation: floatUp 1.6s ease-out forwards; z-index: 15; }
   @keyframes floatUp { from { opacity: 0; transform: translate(-50%, 0) scale(.6); } 15% { opacity: 1; transform: translate(-50%, -10px) scale(1.15); } to { opacity: 0; transform: translate(-50%, -90px) scale(1); } }
@@ -286,18 +293,19 @@
   }
   /* paysage : scores et message à gauche, outils et analyse à droite, le plateau au centre */
   @media (orientation: landscape) and (max-height: 500px) {
-    #btnTools { top: 8px; right: 8px; }
-    #hud #toolbar { top: 58px; right: 8px; bottom: auto; max-height: calc(100vh - 66px); }
-    #scoreboard { top: 8px; left: 8px; transform: none; flex-direction: column; width: 172px; padding: 4px; gap: 4px; }
+    :root { --gl: max(8px, env(safe-area-inset-left)); --gr: max(8px, env(safe-area-inset-right)); --gb: max(8px, env(safe-area-inset-bottom)); }
+    #btnTools { top: 8px; right: var(--gr); }
+    #hud #toolbar { top: 58px; right: var(--gr); bottom: auto; max-height: calc(100vh - 66px); }
+    #scoreboard { top: 8px; left: var(--gl); transform: none; flex-direction: column; width: 172px; padding: 4px; gap: 4px; }
     .side, .side.p1 { flex-direction: row; text-align: left; min-width: 0; padding: 7px 10px; gap: 8px; }
     .side .name { font-size: 12px; }
     .side .pts, .side.p1 .pts { font-size: 22px; margin: 0 0 0 auto; }
     #mid { flex-direction: row; justify-content: space-between; border: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 6px 10px; min-width: 0; }
     #mid span { white-space: nowrap; }
     #mid { gap: 10px; }
-    #status { left: 8px; bottom: 8px; transform: none; width: 172px; max-width: none; white-space: normal; align-items: flex-start; font-size: 12px; line-height: 1.35; padding: 9px 11px; }
+    #status { left: var(--gl); bottom: var(--gb); transform: none; width: 172px; max-width: none; white-space: normal; align-items: flex-start; font-size: 12px; line-height: 1.35; padding: 9px 11px; }
     #status .dot, #status .spinner { flex: none; margin-top: 2px; }
-    #coach, #review { top: 58px; right: 8px; left: auto; width: 224px; max-height: calc(100vh - 66px); padding: 12px; }
+    #coach, #review { top: 58px; right: var(--gr); left: auto; width: 224px; max-height: calc(100vh - 66px); padding: 12px; }
     .hint-cta button { padding: 8px 6px; font-size: 12.5px; white-space: nowrap; }
     #toast { top: auto; bottom: 10px; max-width: calc(100vw - 380px); white-space: normal; text-align: center; }
     .modal.menu { padding: 8px; }
@@ -364,6 +372,7 @@
     <button id="btnView" title="Basculer la vue">⟲<span> Vue</span></button>
     <button id="btnHeights" title="Afficher les hauteurs">▦<span> Hauteurs</span></button>
     <button id="btnRules" title="Règles">?<span> Règles</span></button>
+    <button id="btnFull" title="Plein écran">⛶<span> Plein écran</span></button>
     <button id="btnMenu" title="Menu">☰<span> Menu</span></button>
   </div>
   <div id="status" class="glass"><span class="dot" id="statusDot"></span><span id="statusText"></span></div>
