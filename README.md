@@ -2,7 +2,7 @@
 
 Une adaptation en 3D (Three.js) du jeu de stratégie **Traversal**, jouable dans le navigateur à deux joueurs sur le même écran ou contre un bot.
 
-🎮 **Jouer directement en ligne : [strong-frangipane-d167ff.netlify.app](https://strong-frangipane-d167ff.netlify.app/)**
+🎮 **Jouer directement en ligne : [drschizzo.github.io/traversal-3d](https://drschizzo.github.io/traversal-3d/)**
 
 ![Une partie sur le thème Crépuscule : l'Explorateur sélectionné montre ses déplacements possibles et le chemin survolé](docs/gameplay.jpg)
 
