@@ -1975,8 +1975,9 @@ document.querySelectorAll('.seg').forEach(seg => {
     const b = e.target.closest('button');
     if (!b) return;
     const key = seg.dataset.key;
-    // changer de terrain tire un nouveau monde : la partie en cours serait perdue
-    if (key === 'terrain' && (b.classList.contains('sel') || !(await confirmAbandon()))) return;
+    // changer de terrain tire un nouveau monde ; mode, couleur et niveau sont figés pendant la partie :
+    // dans les deux cas, la partie en cours serait perdue
+    if ((key === 'terrain' || seg.classList.contains('locked')) && (b.classList.contains('sel') || !(await confirmAbandon()))) return;
     seg.querySelectorAll('button').forEach(x => x.classList.toggle('sel', x === b));
     cfg[key] = key === 'side' ? Number(b.dataset.v) : b.dataset.v;
     if (key === 'mode') showModeOptions();
@@ -2027,9 +2028,16 @@ function abandonGame() {
   updateMenuButtons();
 }
 
-// partie en cours : « Reprendre » devient l'action principale, « Jouer » propose une nouvelle partie
+// partie en cours : « Reprendre » devient l'action principale, « Jouer » propose une nouvelle partie,
+// et les réglages de la partie (mode, couleur, niveau) sont figés
+const LOCKED_KEYS = ['mode', 'side', 'level'];
 function updateMenuButtons() {
   const active = gameActive();
+  LOCKED_KEYS.forEach(k => {
+    const seg = document.querySelector(`.seg[data-key="${k}"]`);
+    seg.classList.toggle('locked', active);
+    seg.title = active ? 'Réglage de la partie en cours' : '';
+  });
   $('btnResume').classList.toggle('hidden', !active);
   $('btnStart').classList.toggle('primary', !active);
   $('btnStart').classList.toggle('play', !active);

@@ -232,6 +232,8 @@
   .seg button { flex: 1 1 auto; padding: 9px 12px; background: var(--glass-2); border: 1px solid transparent; border-radius: 10px; font-size: 13px; font-weight: 500; transition: background .15s, border-color .15s; }
   .seg button:hover { background: rgba(255,255,255,.12); }
   .seg button.sel { background: rgba(242,196,109,.16); border-color: rgba(242,196,109,.7); color: #ffe3a8; }
+  .seg.locked button:not(.sel) { opacity: .35; }
+  .seg.locked button:not(.sel):hover { background: var(--glass-2); }
   /* sélecteur de thème : une rangée de pastilles, le nom s'affiche dans la carte du monde */
   .seg.themes { flex-wrap: nowrap; justify-content: space-between; gap: 4px; }
   .seg.themes button { flex: 0 0 auto; width: 38px; height: 38px; padding: 0; border-radius: 50%; border: 0; position: relative;
