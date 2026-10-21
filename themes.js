@@ -6,7 +6,10 @@
 // modes          : variantes de terrain propres à un mode (facultatif)
 // surface        : rendu des cases (matte, wood, stone, ice, ceramic, sand, slate, marble, neon, landscape) ; roughness : brillance
 // plinth / plinthSurface : couleur et rendu du socle
-// pieces         : finition des pièces (roughness, clearcoat) ; laque brillante par défaut
+// pieces         : finition des pièces (roughness, clearcoat) ; laque brillante par défaut ;
+//                  teams : couleurs propres au thème [{ main, dark }, { main, dark }] (rester rouge et bleu)
+// pips           : repères des pièces — top : sommets du haut (Force), base : coins de la base (Mouvement) ;
+//                  shape (sphere, octa, peg), puis pour chacun color, metalness, roughness, emissive, glow
 // horizon / band : brume d'horizon (couleur de base et bande lumineuse ajoutée près de l'horizon)
 // field          : pavage brumeux (creux, milieu, sommets, arêtes des cases)
 // fx             : effets du décor — beam (halos de lumière qui dérivent), alley (braises qui couvent sous la brume),
@@ -22,6 +25,7 @@
 export const THEMES = [
   {
     id: 'crepuscule', name: 'Crépuscule',
+    pips: { shape: 'sphere', top: { color: '#ffd27a', metalness: 1, roughness: 0.25, emissive: '#3a2600' }, base: { color: '#e4ebf2', metalness: 0.9, roughness: 0.3 } },
     // un paysage à l'heure dorée : herbe, roche et neige sous une lumière rasante chaude,
     // ombres bleutées, halos de soleil couchant qui glissent dans la brume, lucioles
     terrain: {
@@ -46,6 +50,7 @@ export const THEMES = [
   },
   {
     id: 'atelier', name: 'Atelier',
+    pips: { shape: 'peg', top: { color: '#e8c896', roughness: 0.65 }, base: { color: '#8a5e38', roughness: 0.7 } },
     // la version en bois imaginée à l'origine : blocs de bois massif, socle en noyer, pièces en bois peint
     terrain: {
       top: ['#7a5232', '#875c38', '#94673f', '#a27347', '#af8050', '#bc8d5b', '#c99a67', '#d6a874', '#e2b783'],
@@ -53,7 +58,7 @@ export const THEMES = [
     },
     surface: 'wood', roughness: 0.62,
     plinth: '#3a2414', plinthSurface: 'plank',
-    pieces: { roughness: 0.48, clearcoat: 0.35, clearcoatRoughness: 0.4 },
+    pieces: { roughness: 0.48, clearcoat: 0.35, clearcoatRoughness: 0.4, teams: [{ main: '#a8402e', dark: '#4a2c18' }, { main: '#2f5a94', dark: '#4a2c18' }] },
     horizon: '#2a1c14', band: '#6e4c2c', skyTop: '#0e0906', glows: ['#7a4a26', '#a8743a', '#e0a050'],
     floor: '#110b07',
     field: { low: '#3a2618', mid: '#7a5638', high: '#d8b07a', edge: '#a87c4a' },
@@ -66,6 +71,7 @@ export const THEMES = [
   },
   {
     id: 'lagon', name: 'Lagon',
+    pips: { shape: 'sphere', top: { color: '#fff4e6', metalness: 0.15, roughness: 0.12, emissive: '#2a2218' }, base: { color: '#9fe6dc', metalness: 0.2, roughness: 0.2 } },
     terrain: {
       top: ['#1f8a80', '#33998a', '#5aab88', '#8fbf88', '#c2c890', '#cfb487', '#a99c8c', '#d4dcd9', '#eef5f4'],
       strata: ['#5e4a38', '#6a5640', '#76624a', '#6e6e68', '#7c7c76'],
@@ -85,6 +91,7 @@ export const THEMES = [
   },
   {
     id: 'braise', name: 'Braise',
+    pips: { shape: 'sphere', top: { color: '#ffb35a', roughness: 0.5, emissive: '#ff6a10', glow: 0.7 }, base: { color: '#ff8a3a', roughness: 0.6, emissive: '#c03a08', glow: 0.45 } },
     terrain: {
       top: ['#4a4a46', '#5c5a52', '#6e6858', '#857a5e', '#9a8460', '#a8865a', '#7a7470', '#9a948e', '#c8c0b8'],
       strata: ['#2e2a28', '#3a3430', '#463e38', '#3c3a38', '#4a4644'],
@@ -104,6 +111,7 @@ export const THEMES = [
   },
   {
     id: 'givre', name: 'Givre',
+    pips: { shape: 'sphere', top: { color: '#eef8ff', metalness: 0.3, roughness: 0.05, emissive: '#3a6a90', glow: 0.8 }, base: { color: '#cfe6f8', metalness: 0.3, roughness: 0.1, emissive: '#1a3a58', glow: 0.6 } },
     terrain: {
       top: ['#5f7f96', '#7392a8', '#88a5b9', '#9db7c8', '#b3c8d6', '#c8d8e3', '#dce6ee', '#eef3f7', '#ffffff'],
       strata: ['#3e4f62', '#4a5c70', '#566a7e', '#62768a', '#6e8296'],
@@ -124,6 +132,7 @@ export const THEMES = [
   },
   {
     id: 'ardoise', name: 'Ardoise',
+    pips: { shape: 'sphere', top: { color: '#f2f2ea', roughness: 1 }, base: { color: '#b8beb4', roughness: 1 } },
     // un tableau noir : ardoise feuilletée, pourtour des cases tracé à la craie, poussière de craie
     terrain: {
       top: ['#2e3735', '#34403d', '#3b4844', '#43514c', '#4c5a55', '#56645e', '#606e68', '#6b7872', '#77837c'],
@@ -142,6 +151,7 @@ export const THEMES = [
   },
   {
     id: 'marbre', name: 'Marbre & or',
+    pips: { shape: 'sphere', top: { color: '#ffd27a', metalness: 1, roughness: 0.12, emissive: '#3a2600' }, base: { color: '#f4f0e8', metalness: 0.1, roughness: 0.15 } },
     // une édition de luxe : marbre noir dans les creux, blanc de Carrare sur les sommets, filets d'or
     terrain: {
       top: ['#2a2a30', '#3a3a42', '#55555e', '#76767e', '#9a9aa0', '#bcbcbe', '#d8d6d2', '#ebe8e2', '#f8f6f2'],
@@ -162,6 +172,7 @@ export const THEMES = [
   },
   {
     id: 'neon', name: 'Néon',
+    pips: { shape: 'sphere', top: { color: '#7ff4ff', roughness: 0.3, emissive: '#30f0ff', glow: 0.55 }, base: { color: '#ff7ae0', roughness: 0.3, emissive: '#ff3fd0', glow: 0.4 } },
     // le relief se lit aux contours : cases sombres et lustrées dont les arêtes s'allument, du cyan au magenta
     terrain: {
       top: ['#120a24', '#160c2c', '#1a0e34', '#1e103c', '#221244', '#26144c', '#2a1654', '#2e185c', '#321a64'],

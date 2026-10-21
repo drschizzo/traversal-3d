@@ -807,6 +807,8 @@ function numberTexture(n) {
 
 // ================================================================ thèmes
 let pieceObjs = [];
+// plafond de luminosité des repères des pièces, sous le seuil du halo du thème (voir pipMaterial)
+const pipCap = { value: 0.8 };
 function applyTheme(id) {
   theme = THEMES.find(t => t.id === id) || THEMES[0];
   HORIZON.set(theme.horizon);
@@ -852,7 +854,8 @@ function applyTheme(id) {
   configParticles(ambient.extra, theme.extra);
   terrainMat.envMapIntensity = theme.envIntensity ?? 0.2;
   fill.intensity = 0.8; hemi.intensity = 0.6;
-  for (const o of pieceObjs) finishPiece(o.body.material);
+  pipCap.value = 0.85 * (bl.threshold ?? 0.85);
+  pieceObjs.forEach((o, pi) => stylePiece(o, state.pieces[pi]));
   hemi.color.set(theme.light.sky); hemi.groundColor.set(theme.light.ground);
   sun.color.set(theme.light.sun); fill.color.set(theme.light.fill);
   renderer.toneMappingExposure = theme.exposure ?? 1;
@@ -881,19 +884,83 @@ function vanguardGeometry() {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(faces.flat(2), 3));
   g.computeVertexNormals();
-  return { geo: g, tips: T };
+  return { geo: g, tips: T, feet: B };
 }
+// sommets d'un polygone régulier de n côtés (même orientation que les géométries de Three.js)
+const ring = (n, r, y) => Array.from({ length: n }, (_, k) => [r * Math.sin((k * 2 * Math.PI) / n), y, r * Math.cos((k * 2 * Math.PI) / n)]);
+// La forme dit les règles : boules d'or aux sommets du haut = Force (attaque),
+// boules d'argent aux sommets de la base = Mouvement (5, 4 ou 3 points).
 const PIECE_GEO = [
-  (() => { const g = new THREE.ConeGeometry(0.27, 0.95, 5); g.translate(0, 0.535, 0); return { geo: g, tips: [[0, 1.01, 0]] }; })(),
+  (() => { const g = new THREE.ConeGeometry(0.27, 0.95, 5); g.translate(0, 0.535, 0); return { geo: g, tips: [[0, 1.01, 0]], feet: ring(5, 0.27, 0.06) }; })(),
   vanguardGeometry(),
   (() => {
     const g = new THREE.CylinderGeometry(0.31, 0.36, 0.6, 3); g.translate(0, 0.36, 0);
-    return { geo: g, tips: [0, 1, 2].map(k => [0.27 * Math.sin((k * 2 * Math.PI) / 3), 0.68, 0.27 * Math.cos((k * 2 * Math.PI) / 3)]) };
+    return { geo: g, tips: ring(3, 0.27, 0.68), feet: ring(3, 0.36, 0.06) };
   })(),
 ];
 const baseGeo = new THREE.CylinderGeometry(0.37, 0.4, 0.06, 40); baseGeo.translate(0, 0.03, 0);
-const studGeo = new THREE.SphereGeometry(0.065, 16, 12);
-const studMat = new THREE.MeshStandardMaterial({ color: 0xffd27a, metalness: 1, roughness: 0.25, emissive: 0x4a3200 });
+// repères : [sommets du haut, coins de la base] ; ceux de la base sont plus petits et à moitié enfoncés dans le socle
+const PIP_GEO = {
+  sphere: [new THREE.SphereGeometry(0.05, 16, 12), new THREE.SphereGeometry(0.034, 12, 8)],
+  octa: [new THREE.OctahedronGeometry(0.065), new THREE.OctahedronGeometry(0.044)],
+  peg: [new THREE.CylinderGeometry(0.038, 0.044, 0.07, 14), new THREE.CylinderGeometry(0.028, 0.032, 0.04, 12)],
+};
+const PIP_DEFAULT = { shape: 'sphere', top: { color: '#ffd27a', metalness: 1, roughness: 0.25, emissive: '#3a2600' }, base: { color: '#e4ebf2', metalness: 0.9, roughness: 0.3 } };
+// Les repères sont minuscules : s'ils dépassaient le seuil du halo lumineux (bloom), ses niveaux en basse
+// résolution les étaleraient en petits carrés. Leur luminosité est donc plafonnée sous ce seuil (pipCap, réglé
+// par thème), et la lueur des thèmes lumineux est dessinée à part, par un halo rond et doux.
+const pipMaterial = spec => {
+  const m = new THREE.MeshStandardMaterial({
+    color: spec.color, metalness: spec.metalness ?? 0, roughness: spec.roughness ?? 0.5,
+    emissive: spec.emissive ?? '#000000', emissiveIntensity: spec.glow ?? 1,
+  });
+  m.onBeforeCompile = sh => {
+    sh.uniforms.uPipCap = pipCap;
+    sh.fragmentShader = 'uniform float uPipCap;\n' + sh.fragmentShader.replace('#include <dithering_fragment>',
+      '#include <dithering_fragment>\n\tgl_FragColor.rgb = min(gl_FragColor.rgb, vec3(uPipCap));');
+  };
+  m.customProgramCacheKey = () => 'pip-cap';
+  return m;
+};
+const haloTex = (() => {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 64;
+  const g = cv.getContext('2d'), grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(0.35, 'rgba(255,255,255,.55)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(cv);
+})();
+// couleurs des pièces : celles du thème s'il en définit, sinon les couleurs d'équipe
+const pieceColors = o => (theme.pieces?.teams || TEAM)[o];
+// applique le style du thème aux repères et aux couleurs d'une pièce
+function stylePiece(obj, p) {
+  const st = theme.pips || PIP_DEFAULT, shape = PIP_GEO[st.shape] ? st.shape : 'sphere';
+  for (const pip of obj.pips) {
+    const spec = pip.role === 0 ? st.top : st.base;
+    pip.mesh.geometry = PIP_GEO[shape][pip.role];
+    pip.mesh.material.dispose();
+    pip.mesh.material = pipMaterial(spec);
+    pip.mesh.rotation.y = shape === 'octa' ? Math.PI / 4 : 0;
+    // halo doux pour les repères lumineux ; le repère lui-même en masque le centre (test de profondeur)
+    if (pip.halo) { pip.halo.removeFromParent(); pip.halo.material.dispose(); pip.halo = null; }
+    if (spec.glow) {
+      const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: haloTex, color: spec.emissive, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false,
+        opacity: Math.min(0.8, 0.45 + spec.glow * 0.4),
+      }));
+      halo.scale.setScalar(pip.role === 0 ? 0.26 : 0.17);
+      halo.position.copy(pip.mesh.position);
+      halo.userData.baseOpacity = halo.material.opacity;
+      halo.raycast = () => {}; // le halo ne compte pas pour le survol des pièces
+      obj.grp.add(halo);
+      pip.halo = halo;
+    }
+  }
+  const c = pieceColors(p.o);
+  obj.body.material.color.set(c.main);
+  obj.base.material.color.set(c.dark);
+  finishPiece(obj.body.material);
+}
 
 const piecesGroup = new THREE.Group();
 scene.add(piecesGroup);
@@ -905,20 +972,24 @@ function buildPieces(s) {
     const body = new THREE.Mesh(PIECE_GEO[p.t].geo, new THREE.MeshPhysicalMaterial({
       color: TEAM[p.o].main, metalness: 0.05, flatShading: true, side: THREE.DoubleSide,
     }));
-    finishPiece(body.material);
     const base = new THREE.Mesh(baseGeo, new THREE.MeshStandardMaterial({ color: TEAM[p.o].dark, roughness: 0.4, metalness: 0.3 }));
     body.castShadow = base.castShadow = true;
     body.receiveShadow = true;
     grp.add(base, body);
-    for (const tip of PIECE_GEO[p.t].tips) {
-      const stud = new THREE.Mesh(studGeo, studMat.clone());
-      stud.position.set(...tip);
-      grp.add(stud);
+    const pips = [];
+    for (const tip of PIECE_GEO[p.t].tips) pips.push({ role: 0, at: tip });
+    for (const [x, y, z] of PIECE_GEO[p.t].feet) pips.push({ role: 1, at: [x, y + 0.008, z] });
+    for (const pip of pips) {
+      pip.mesh = new THREE.Mesh(PIP_GEO.sphere[pip.role], new THREE.MeshStandardMaterial());
+      pip.mesh.position.set(...pip.at);
+      grp.add(pip.mesh);
     }
     grp.rotation.y = p.o === 1 ? Math.PI : 0;
     grp.traverse(o => { o.userData.pi = pi; });
     piecesGroup.add(grp);
-    return { grp, body };
+    const obj = { grp, body, base, pips };
+    stylePiece(obj, p);
+    return obj;
   });
   syncPieces(s);
 }
@@ -926,9 +997,10 @@ function buildPieces(s) {
 function setPieceOpacity(obj, a) {
   obj.grp.traverse(o => {
     if (!o.material) return;
-    o.material.transparent = a < 1;
-    o.material.opacity = a;
-    o.material.depthWrite = a >= 1;
+    const halo = o.userData.baseOpacity !== undefined; // halos : toujours transparents, opacité propre
+    o.material.transparent = a < 1 || halo;
+    o.material.opacity = a * (halo ? o.userData.baseOpacity : 1);
+    o.material.depthWrite = a >= 1 && !halo;
   });
 }
 
@@ -1627,7 +1699,7 @@ function showCard(pi) {
   card.innerHTML = `
     <div class="head"><span class="glyph" style="color:${TEAM[p.o].css}">${G.TYPE_GLYPHS[p.t]}</span>
       <div><div class="title">${G.TYPE_NAMES[p.t]}</div><div class="owner">${G.PLAYER_NAMES[p.o]} · hauteur ${state.h[G.idx(p.x, p.y)]}</div></div></div>
-    <div class="stats"><div class="stat"><b>${G.MOVE[p.t]}</b><span>Mouvement</span></div><div class="stat"><b>${G.STR[p.t]}</b><span>Force</span></div></div>
+    <div class="stats"><div class="stat"><b>${G.MOVE[p.t]}</b><span><i style="background:${(theme.pips || PIP_DEFAULT).base.color}"></i>Mouvement</span></div><div class="stat"><b>${G.STR[p.t]}</b><span><i style="background:${(theme.pips || PIP_DEFAULT).top.color}"></i>Force</span></div></div>
     <p>${G.TYPE_DESC[p.t]}</p>`;
   card.classList.remove('hidden-soft');
 }
