@@ -65,6 +65,9 @@ Les règles complètes et officielles sont sur [traversalgame.com/rules](https:/
   rendu en raymarching volumétrique et brumeux, qui se transforme lentement.
 - **Pensé pour la fluidité** : vise 120 images/s. Le décor est rendu en demi-résolution, les ombres ne sont
   recalculées que quand quelque chose bouge, et les particules sont animées sur GPU.
+- **Qualité graphique adaptée à l'appareil** (menu → Personnaliser) : haute, moyenne, basse ou *auto*.
+  En auto, le jeu démarre en qualité moyenne sur mobile et baisse d'un cran s'il tourne sous 45 images/s.
+  Le niveau bas rend la scène sans post-traitement, avec un décor allégé et moins de particules.
 
 ![Le thème Atelier, inspiré de la version en bois imaginée à l'origine pour le jeu](docs/atelier.jpg)
 

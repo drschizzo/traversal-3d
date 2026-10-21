@@ -22,13 +22,30 @@ const TEAM = [
 ];
 const $ = id => document.getElementById(id);
 
+// ================================================================ qualité graphique
+// Trois niveaux, plus « auto » (par défaut) : moyen d'emblée sur un appareil tactile, haut sinon, puis un cran de
+// moins tant que l'image n'est pas fluide. Les postes qui coûtent sur mobile : le pavage en raymarching (pas,
+// résolution, fréquence de mise à jour), le post-traitement en demi-flottants (MSAA, halo, étalonnage : plusieurs
+// passes plein écran) et les ombres douces. Au niveau bas, la scène est rendue directement à l'écran.
+const QUALITY = {
+  high: { name: 'haute', pr: 1.5, msaa: 4, post: true, bloom: true, field: 0.5, steps: 30, octave2: 1, fieldEvery: 1, shadow: 2048, soft: true, particles: 1, pointPx: 48, shadowEvery: 1 },
+  medium: { name: 'moyenne', pr: 1.25, msaa: 2, post: true, bloom: true, field: 0.35, steps: 20, octave2: 0, fieldEvery: 2, shadow: 1024, soft: false, particles: 0.6, pointPx: 32, shadowEvery: 2 },
+  low: { name: 'basse', pr: 1, msaa: 0, post: false, bloom: false, field: 0.25, steps: 14, octave2: 0, fieldEvery: 3, shadow: 1024, soft: false, particles: 0.35, pointPx: 20, shadowEvery: 4 },
+};
+const LEVELS_ORDER = ['high', 'medium', 'low'];
+let qualityPref = 'auto';
+try { qualityPref = localStorage.getItem('traversal.quality') || 'auto'; } catch {}
+if (qualityPref !== 'auto' && !QUALITY[qualityPref]) qualityPref = 'auto';
+let qualityLevel = qualityPref === 'auto' ? (matchMedia('(pointer: coarse)').matches ? 'medium' : 'high') : qualityPref;
+let Q = QUALITY[qualityLevel];
+
 // ================================================================ renderer & scène
 const canvas = $('scene');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+renderer.setPixelRatio(Math.min(devicePixelRatio, Q.pr));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = Q.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
 renderer.shadowMap.autoUpdate = false;   // recalcul à la demande (voir la boucle)
 let shadowDirty = true;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -62,7 +79,7 @@ function fitCamera() {
 fitCamera();
 
 // post-traitement : halo lumineux puis étalonnage (le flou du décor est fait directement sur le pavage, voir renderField)
-const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { samples: 4, type: THREE.HalfFloatType }));
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { samples: Q.msaa, type: THREE.HalfFloatType }));
 composer.setPixelRatio(renderer.getPixelRatio());
 composer.setSize(innerWidth, innerHeight);
 composer.addPass(new RenderPass(scene, camera));
@@ -184,7 +201,7 @@ scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffeccf, 3.0);
 sun.position.set(-7, 14, 6);
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.mapSize.set(Q.shadow, Q.shadow);
 Object.assign(sun.shadow.camera, { left: -9, right: 9, top: 9, bottom: -9, near: 1, far: 40 });
 sun.shadow.bias = -0.0005;
 sun.shadow.normalBias = 0.02;
@@ -245,6 +262,7 @@ for (let k = 0; k < ATLAS_N * ATLAS_N; k++) {
 
 const fieldMat = new THREE.ShaderMaterial({
   depthTest: false, depthWrite: false,
+  defines: { FIELD_STEPS: Q.steps, FIELD_OCTAVE2: Q.octave2 },
   uniforms: {
     uProjInv: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uCamPos: { value: new THREE.Vector3() },
     uFloor: { value: floorMat.uniforms.base.value },
@@ -318,7 +336,7 @@ const fieldMat = new THREE.ShaderMaterial({
       // sur une douzaine d'unités au plus, donc une trentaine de pas suffisent
       float t0 = max(min(ta, tb), 0.0), t1 = min(max(ta, tb), t0 + 16.0);
       if (t1 <= t0) { gl_FragColor = vec4(floorCol, 1.0); return; }
-      const int STEPS = 30;
+      const int STEPS = FIELD_STEPS;
       float dt = (t1 - t0) / float(STEPS);
       float t = t0 + dt * fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
       vec3 acc = vec3(0.0);
@@ -333,7 +351,9 @@ const fieldMat = new THREE.ShaderMaterial({
         if (dy > 0.5 && p.y - FLOOR > 2.2) { t += dt; continue; }             // air vide au-dessus du relief : pas de bruit
         vec3 q = p * vec3(0.45, 0.8, 0.45) + vec3(uTime * 0.04, -uTime * 0.05, uTime * 0.02);
         float n = noise3(q);
+        #if FIELD_OCTAVE2
         n = dist < 30.0 ? n * 0.65 + noise3(q * 2.3 + 4.7) * 0.35 : n;        // 2e octave seulement de près
+        #endif
         float body = smoothstep(0.12, -0.25, dy + (n - 0.5) * 0.35) * f.y;      // colonnes de brume
         float hint = exp(-abs(dy) * 8.0) * f.z * f.y * 0.8 * (1.0 - smoothstep(18.0, 45.0, t));   // arêtes des cases (estompées au loin)
         float ground = exp(-(p.y - FLOOR) * 1.3) * (0.25 + 0.75 * smoothstep(0.35, 0.8, n)) * 0.35;   // brume rampante (comble les allées)
@@ -411,7 +431,7 @@ const blurMat = new THREE.ShaderMaterial({
 }
 function sizeFieldRT() {
   const pr = renderer.getPixelRatio();
-  const w = Math.max(1, Math.round(innerWidth * pr * 0.5)), h = Math.max(1, Math.round(innerHeight * pr * 0.5));
+  const w = Math.max(1, Math.round(innerWidth * pr * Q.field)), h = Math.max(1, Math.round(innerHeight * pr * Q.field));
   fieldRT.setSize(w, h);
   blurRT.setSize(Math.max(1, w >> 1), Math.max(1, h >> 1));
   blurMat.uniforms.uTexel.value.set(1 / w, 1 / h);
@@ -631,6 +651,7 @@ const dotTex = (() => {
   dc.fillStyle = grd; dc.fillRect(0, 0, 32, 32);
   return new THREE.CanvasTexture(dot);
 })();
+const particleMaxPx = { value: 64 }; // taille maximale d'une particule à l'écran, en pixels (selon la qualité)
 function makeParticles(n, rMin, rMax, seed) {
   const rng = G.mulberry32(seed);
   const dp = new Float32Array(n * 3), rnd = new Float32Array(n);
@@ -642,17 +663,19 @@ function makeParticles(n, rMin, rMax, seed) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(dp, 3));
   g.setAttribute('aRnd', new THREE.BufferAttribute(rnd, 1));
-  const u = { uSpeed: { value: 0.25 }, uSway: { value: 0 }, uSizeVar: { value: 0 }, uFlicker: { value: 0 }, uSpeedVar: { value: 0 } };
+  const u = { uSpeed: { value: 0.25 }, uSway: { value: 0 }, uSizeVar: { value: 0 }, uFlicker: { value: 0 }, uSpeedVar: { value: 0 }, uMaxPx: particleMaxPx };
   const mat = new THREE.PointsMaterial({ size: 0.16, map: dotTex, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false });
   mat.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, u, { uTime: ambient.time });
-    sh.vertexShader = 'uniform float uTime, uSpeed, uSway, uSizeVar, uFlicker, uSpeedVar;\nattribute float aRnd;\nvarying float vFlick;\n' + sh.vertexShader
+    sh.vertexShader = 'uniform float uTime, uSpeed, uSway, uSizeVar, uFlicker, uSpeedVar, uMaxPx;\nattribute float aRnd;\nvarying float vFlick;\n' + sh.vertexShader
       .replace('#include <begin_vertex>', `vec3 transformed = position;
         float spd = uSpeed * mix(1.0, 0.5 + aRnd, uSpeedVar);
         transformed.y = ${FLOOR_Y.toFixed(2)} + mod(position.y - ${FLOOR_Y.toFixed(2)} + uTime * spd, 20.0);
         transformed.xz += vec2(sin(uTime * 0.7 + aRnd * 6.28 + position.z), cos(uTime * 0.6 + aRnd * 4.0 + position.x)) * uSway;
         vFlick = mix(1.0, pow(0.5 + 0.5 * sin(uTime * (2.0 + aRnd * 5.0) + aRnd * 40.0), 2.0), uFlicker);`)
-      .replace('gl_PointSize = size;', 'gl_PointSize = size * mix(1.0, 0.35 + 1.3 * aRnd, uSizeVar);');
+      .replace('gl_PointSize = size;', 'gl_PointSize = size * mix(1.0, 0.35 + 1.3 * aRnd, uSizeVar);')
+      // près de la caméra, un point deviendrait un grand disque transparent : coûteux à remplir, surtout sur mobile
+      .replace('#include <fog_vertex>', 'gl_PointSize = min(gl_PointSize, uMaxPx);\n#include <fog_vertex>');
     sh.fragmentShader = 'varying float vFlick;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.a *= vFlick;');
   };
   const pts = new THREE.Points(g, mat);
@@ -664,6 +687,12 @@ function makeParticles(n, rMin, rMax, seed) {
 ambient.time = { value: 0 };
 ambient.dust = makeParticles(700, 4, 44, 1234);
 ambient.extra = makeParticles(260, 3, 26, 777);
+// moins de particules aux niveaux de qualité inférieurs (elles se superposent en transparence)
+function scaleParticles() {
+  particleMaxPx.value = Q.pointPx * renderer.getPixelRatio();
+  for (const sys of [ambient.dust, ambient.extra]) sys.pts.geometry.setDrawRange(0, Math.round(sys.pts.geometry.attributes.position.count * Q.particles));
+}
+scaleParticles();
 function configParticles(sys, cfg) {
   sys.pts.visible = !!cfg;
   if (!cfg) return;
@@ -848,7 +877,7 @@ function applyTheme(id) {
   raw(gu.uLeak.value, pp.leak);
   gu.uHeat.value = pp.heat ?? 0;
   const bl = pp.bloom || { strength: 0.35, radius: 0.5, threshold: 0.85 };
-  bloom.enabled = bl.strength > 0;
+  bloom.enabled = bl.strength > 0 && Q.bloom;
   bloom.strength = bl.strength; bloom.radius = bl.radius ?? 0.5; bloom.threshold = bl.threshold ?? 0.85;
   configParticles(ambient.dust, theme.dust);
   configParticles(ambient.extra, theme.extra);
@@ -1905,6 +1934,12 @@ $('btnCustomize').onclick = () => {
   $('btnCustomize').textContent = open ? 'Fermer' : 'Personnaliser';
 };
 $('btnReroll').onclick = previewTerrain;
+function showQualityChoice() {
+  document.querySelectorAll('#qualitySeg button').forEach(b => b.classList.toggle('sel', b.dataset.v === qualityPref));
+  $('qualityAuto').textContent = qualityPref === 'auto' ? `Auto · ${Q.name}` : 'Auto';
+}
+$('qualitySeg').onclick = e => { const b = e.target.closest('button'); if (b) setQualityPref(b.dataset.v); };
+showQualityChoice();
 $('btnResume').onclick = () => { $('menu').classList.add('hidden'); updateMenuShift(); };
 $('btnMenu').onclick = openMenu;
 $('btnMenuRules').onclick = $('btnRules').onclick = () => $('rules').classList.remove('hidden');
@@ -1946,9 +1981,82 @@ controls.autoRotateSpeed = 0.5;
 previewTerrain();
 updateMenuShift(false);
 
+// ---------------------------------------------------------------- changement de niveau de qualité
+function applyQuality(level) {
+  const prev = Q;
+  qualityLevel = level;
+  Q = QUALITY[level];
+  renderer.setPixelRatio(Math.min(devicePixelRatio, Q.pr));
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setPixelRatio(renderer.getPixelRatio());
+  for (const rt of [composer.renderTarget1, composer.renderTarget2]) { rt.samples = Q.msaa; rt.dispose(); }
+  composer.setSize(innerWidth, innerHeight);
+  sizeGrade();
+  sizeFieldRT();
+  if (prev.steps !== Q.steps || prev.octave2 !== Q.octave2) {
+    fieldMat.defines.FIELD_STEPS = Q.steps;
+    fieldMat.defines.FIELD_OCTAVE2 = Q.octave2;
+    fieldMat.needsUpdate = true;
+  }
+  if (prev.shadow !== Q.shadow || prev.soft !== Q.soft) {
+    sun.shadow.mapSize.set(Q.shadow, Q.shadow);
+    if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+    renderer.shadowMap.type = Q.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    scene.traverse(o => { if (o.material) for (const m of [].concat(o.material)) m.needsUpdate = true; });
+    shadowDirty = true;
+  }
+  bloom.enabled = Q.bloom && ((theme.post && theme.post.bloom) || { strength: 0.35 }).strength > 0;
+  scaleParticles();
+  fieldFrame = 0;
+  showQualityChoice();
+}
+function setQualityPref(pref) {
+  qualityPref = pref;
+  try { localStorage.setItem('traversal.quality', pref); } catch {}
+  const level = pref === 'auto' ? (matchMedia('(pointer: coarse)').matches ? 'medium' : 'high') : pref;
+  autoQ.until = performance.now() + 3000;
+  applyQuality(level);
+}
+
+// Réglage automatique : si l'image tourne sous 45 images/s sur deux fenêtres de 2 s d'affilée, un cran de moins.
+// Les premières secondes (compilation des shaders) et les onglets en arrière-plan sont ignorés.
+const autoQ = { frames: 0, time: 0, until: performance.now() + 4000 };
+function autoQuality(rawDt) {
+  if (qualityPref !== 'auto' || qualityLevel === 'low' || document.hidden) return;
+  const now = performance.now();
+  if (now < autoQ.until || rawDt > 1) { autoQ.frames = 0; autoQ.time = 0; return; } // vrai blocage (onglet repris…) : on recommence
+  autoQ.frames++;
+  autoQ.time += rawDt;
+  if (autoQ.time < 2) return;
+  const fps = autoQ.frames / autoQ.time;
+  autoQ.frames = 0;
+  autoQ.time = 0;
+  autoQ.bad = fps < 45 ? (autoQ.bad || 0) + 1 : 0;
+  if (autoQ.bad >= 2) { // deux fenêtres lentes d'affilée
+    autoQ.bad = 0;
+    applyQuality(LEVELS_ORDER[LEVELS_ORDER.indexOf(qualityLevel) + 1]);
+    autoQ.until = now + 2500;
+    if (!$('hud').classList.contains('hidden')) toast(`Qualité graphique ajustée : ${Q.name}`);
+  }
+}
+
+// le pavage (flou, lent) n'est recalculé qu'une image sur fieldEvery, sauf quand la caméra bouge
+let fieldFrame = 0;
+const lastView = new THREE.Matrix4(), lastProj = new THREE.Matrix4();
+function fieldNeedsRender() {
+  camera.updateMatrixWorld();
+  const moved = !lastView.equals(camera.matrixWorld) || !lastProj.equals(camera.projectionMatrix);
+  if (moved) { lastView.copy(camera.matrixWorld); lastProj.copy(camera.projectionMatrix); }
+  return moved || fieldFrame++ % Q.fieldEvery === 0;
+}
+
 const clock = new THREE.Clock();
+let frameNo = 0;
 renderer.setAnimationLoop(() => {
-  const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
+  frameNo++;
+  const rawDt = clock.getDelta();
+  autoQuality(rawDt);
+  const dt = Math.min(rawDt, 0.05), t = clock.elapsedTime;
   for (let i = tweens.length - 1; i >= 0; i--) {
     const tw = tweens[i];
     tw.t += dt;
@@ -1976,9 +2084,11 @@ renderer.setAnimationLoop(() => {
   for (const o of overlayGroup.children)
     if (o.userData.move.kind !== 'move' && o.userData.move !== hover.move) o.material.opacity = 0.6 + 0.3 * Math.sin(t * 5);
   updateAmbient(t, dt);
-  if (tweens.length || riseAnim || selected >= 0 || shadowDirty) { renderer.shadowMap.needsUpdate = true; shadowDirty = false; }
+  // ombres recalculées à la demande ; la pièce sélectionnée qui flotte n'impose pas un recalcul à chaque image
+  if (tweens.length || riseAnim || shadowDirty || (selected >= 0 && frameNo % Q.shadowEvery === 0)) { renderer.shadowMap.needsUpdate = true; shadowDirty = false; }
   stepRise(dt);
   controls.update();
-  renderField();
-  composer.render();
+  if (fieldNeedsRender()) renderField();
+  if (Q.post) composer.render();
+  else renderer.render(scene, camera);
 });
