@@ -28,9 +28,11 @@ const $ = id => document.getElementById(id);
 // résolution, fréquence de mise à jour), le post-traitement en demi-flottants (MSAA, halo, étalonnage : plusieurs
 // passes plein écran) et les ombres douces. Au niveau bas, la scène est rendue directement à l'écran.
 const QUALITY = {
-  high: { name: 'haute', pr: 1.5, msaa: 4, post: true, bloom: true, field: 0.5, steps: 30, octave2: 1, fieldEvery: 1, shadow: 2048, soft: true, particles: 1, pointPx: 48, shadowEvery: 1 },
-  medium: { name: 'moyenne', pr: 1.25, msaa: 2, post: true, bloom: true, field: 0.35, steps: 20, octave2: 0, fieldEvery: 2, shadow: 1024, soft: false, particles: 0.6, pointPx: 32, shadowEvery: 2 },
-  low: { name: 'basse', pr: 1, msaa: 0, post: false, bloom: false, field: 0.25, steps: 14, octave2: 0, fieldEvery: 3, shadow: 1024, soft: false, particles: 0.35, pointPx: 20, shadowEvery: 4 },
+  // live : l'image est recalculée en continu (brume, lucioles, effets animés) ; sinon seulement quand quelque chose bouge
+  // bakedNoise : bruit lu dans une texture précalculée au lieu d'être calculé à chaque pixel
+  high: { name: 'haute', live: true, bakedNoise: false, pr: 1.5, msaa: 4, post: true, bloom: true, field: 0.5, steps: 30, octave2: 1, fieldEvery: 1, shadow: 2048, soft: true, particles: 1, pointPx: 48, shadowEvery: 1 },
+  medium: { name: 'moyenne', live: true, bakedNoise: false, pr: 1.25, msaa: 2, post: true, bloom: true, field: 0.35, steps: 20, octave2: 0, fieldEvery: 2, shadow: 1024, soft: false, particles: 0.6, pointPx: 32, shadowEvery: 2 },
+  low: { name: 'basse', live: false, bakedNoise: true, pr: 1, msaa: 0, post: false, bloom: false, field: 0.25, steps: 14, octave2: 0, fieldEvery: 3, shadow: 1024, soft: false, particles: 0.35, pointPx: 20, shadowEvery: 4 },
 };
 const LEVELS_ORDER = ['high', 'medium', 'low'];
 let qualityPref = 'auto';
@@ -270,6 +272,40 @@ for (let k = 0; k < ATLAS_N * ATLAS_N; k++) {
   writeAtlas(k, 0, h);
 }
 
+// Bruit 3D précalculé (qualité basse) : les valeurs pseudo-aléatoires du réseau sont rangées dans une texture 3D
+// et lues par interpolation matérielle, avec le même lissage que le calcul direct : une lecture au lieu de huit hachages.
+const NOISE_N = 128;
+const noiseUniform = { value: null };
+function ensureNoiseTex() {
+  if (noiseUniform.value) return;
+  const n = NOISE_N, data = new Uint8Array(n * n * n), fr = v => v - Math.floor(v), h = v => fr(v * 0.3183099 + 0.1) * 17;
+  for (let z = 0, k = 0; z < n; z++)
+    for (let y = 0; y < n; y++)
+      for (let x = 0; x < n; x++, k++) {
+        const a = h(x), b = h(y), c = h(z);
+        data[k] = Math.round(fr(a * b * c * (a + b + c)) * 255);
+      }
+  const tex = new THREE.Data3DTexture(data, n, n, n);
+  tex.format = THREE.RedFormat;
+  tex.minFilter = tex.magFilter = THREE.LinearFilter;
+  tex.wrapS = tex.wrapT = tex.wrapR = THREE.RepeatWrapping;
+  tex.unpackAlignment = 1;
+  tex.needsUpdate = true;
+  noiseUniform.value = tex;
+}
+// bruit de valeur lissé : calculé (hachage `hash`) ou lu dans la texture si BAKED_NOISE est défini
+const noiseGLSL = (name, hash) => `
+  #ifdef BAKED_NOISE
+  uniform highp sampler3D uNoise3D;
+  float ${name}(vec3 x){ vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f); return texture(uNoise3D, (i + f + 0.5) / ${NOISE_N.toFixed(1)}).r; }
+  #else
+  float ${name}(vec3 x){
+    vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(mix(${hash}(i), ${hash}(i + vec3(1, 0, 0)), f.x), mix(${hash}(i + vec3(0, 1, 0)), ${hash}(i + vec3(1, 1, 0)), f.x), f.y),
+               mix(mix(${hash}(i + vec3(0, 0, 1)), ${hash}(i + vec3(1, 0, 1)), f.x), mix(${hash}(i + vec3(0, 1, 1)), ${hash}(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+  }
+  #endif`;
+
 const fieldMat = new THREE.ShaderMaterial({
   depthTest: false, depthWrite: false,
   defines: { FIELD_STEPS: Q.steps, FIELD_OCTAVE2: Q.octave2 },
@@ -280,7 +316,7 @@ const fieldMat = new THREE.ShaderMaterial({
     fogc: { value: HORIZON }, band: { value: HAZE_BAND },
     uLow: { value: new THREE.Color() }, uMid: { value: new THREE.Color() }, uHigh: { value: new THREE.Color() }, uEdge: { value: new THREE.Color() },
     uBeam: { value: new THREE.Color(0) }, uBeamDir: { value: new THREE.Vector2(0.8, 0.6) }, uAlley: { value: new THREE.Color(0) },
-    uCaus: { value: 0 }, uSparkle: { value: 0 },
+    uCaus: { value: 0 }, uSparkle: { value: 0 }, uNoise3D: noiseUniform,
   },
   vertexShader: `uniform mat4 uProjInv, uCamWorld; varying vec3 vDir;
     void main(){
@@ -295,11 +331,7 @@ const fieldMat = new THREE.ShaderMaterial({
     const float FLOOR = ${FLOOR_Y.toFixed(2)}, TOP = ${FIELD_TOP.toFixed(2)}, PITCH = ${TILE_PITCH.toFixed(1)}, AN = ${ATLAS_N.toFixed(1)};
     float hash2(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
     float hash3(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
-    float noise3(vec3 x){
-      vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
-      return mix(mix(mix(hash3(i), hash3(i + vec3(1, 0, 0)), f.x), mix(hash3(i + vec3(0, 1, 0)), hash3(i + vec3(1, 1, 0)), f.x), f.y),
-                 mix(mix(hash3(i + vec3(0, 0, 1)), hash3(i + vec3(1, 0, 1)), f.x), mix(hash3(i + vec3(0, 1, 1)), hash3(i + vec3(1, 1, 1)), f.x), f.y), f.z);
-    }
+    ${noiseGLSL('noise3', 'hash3')}
     const float PERIOD = 10.0, HOLD = 0.2;   // transition de 8 s (inchangée), pause réduite de 8 s à 2 s
     vec4 cKey = vec4(-9999.0);
     float cH = 0.0;
@@ -462,7 +494,8 @@ function renderField() {
 
 // socle : le plateau joué s'élève au-dessus de la brume des autres mondes
 // ---------------------------------------------------------------- surfaces procédurales
-// Motif calculé dans le fragment shader à partir de la position monde : aucune texture à charger.
+// Motif calculé dans le fragment shader à partir de la position monde : aucune texture à charger
+// (en qualité basse, le bruit est lu dans la texture précalculée, voir noiseGLSL).
 // 0 mat · 1 bois · 2 pierre · 3 glace · 4 céramique · 5 sable · 6 planche (fil droit, pour les grandes surfaces)
 // 7 ardoise + craie · 8 marbre veiné d'or · 9 néon (arêtes lumineuses) · 10 paysage (herbe, roche, neige, terre)
 const SURFACES = { matte: 0, wood: 1, stone: 2, ice: 3, ceramic: 4, sand: 5, plank: 6, slate: 7, marble: 8, neon: 9, landscape: 10 };
@@ -478,11 +511,7 @@ const SURFACE_GLSL = `
   // distance au bord de la case (les cases sont centrées sur des demi-entiers)
   float cellEdge(vec3 p){ vec2 f = fract(p.xz); return min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y)); }
   float sHash(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
-  float sNoise(vec3 x){
-    vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
-    return mix(mix(mix(sHash(i), sHash(i + vec3(1, 0, 0)), f.x), mix(sHash(i + vec3(0, 1, 0)), sHash(i + vec3(1, 1, 0)), f.x), f.y),
-               mix(mix(sHash(i + vec3(0, 0, 1)), sHash(i + vec3(1, 0, 1)), f.x), mix(sHash(i + vec3(0, 1, 1)), sHash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
-  }
+  ${noiseGLSL('sNoise', 'sHash')}
   vec3 surfaceTint(vec3 base, inout float rough){
     vec3 p = vSurfP;
     if (uSurface == 1) {                       // bois : cernes et fibres, sens du fil alterné d'un bloc à l'autre
@@ -613,6 +642,7 @@ function withSurface(material, uniforms) {
   material.onBeforeCompile = sh => {
     sh.uniforms.uSurface = uniforms.uSurface;
     sh.uniforms.uSurfTime = surfTime;
+    sh.uniforms.uNoise3D = noiseUniform;
     sh.uniforms.uGlowAmt = uniforms.uGlowAmt || { value: 1 };
     sh.uniforms.uMistAmt = uniforms.uMistAmt || { value: 0 };
     sh.uniforms.uMistCol = uniforms.uMistCol || { value: new THREE.Color() };
@@ -639,6 +669,16 @@ const terrainMat = withSurface(new THREE.MeshStandardMaterial({ roughness: 0.8, 
 
 const plinth = new THREE.Mesh(new RoundedBoxGeometry(11.2, -FLOOR_Y, 11.2, 4, 0.2), withSurface(new THREE.MeshStandardMaterial({ color: 0x23242f, roughness: 0.45, metalness: 0.35 }), plinthSurface));
 plinth.position.y = FLOOR_Y / 2;
+// bascule bruit calculé / bruit précalculé selon le niveau de qualité (recompile les matériaux concernés)
+function applyNoiseMode() {
+  if (Q.bakedNoise) ensureNoiseTex();
+  for (const m of [fieldMat, terrainMat, plinth.material]) {
+    if (Q.bakedNoise) m.defines.BAKED_NOISE = '';
+    else delete m.defines.BAKED_NOISE;
+    m.needsUpdate = true;
+  }
+}
+applyNoiseMode();
 plinth.receiveShadow = plinth.castShadow = true;
 scene.add(plinth);
 
@@ -662,6 +702,8 @@ const dotTex = (() => {
   return new THREE.CanvasTexture(dot);
 })();
 const particleMaxPx = { value: 64 }; // taille maximale d'une particule à l'écran, en pixels (selon la qualité)
+// visibilité des particules (0 à 1) : en rendu à la demande, elles s'effacent avant que l'image se fige
+const particleFade = { value: 1 };
 function makeParticles(n, rMin, rMax, seed) {
   const rng = G.mulberry32(seed);
   const dp = new Float32Array(n * 3), rnd = new Float32Array(n);
@@ -676,7 +718,7 @@ function makeParticles(n, rMin, rMax, seed) {
   const u = { uSpeed: { value: 0.25 }, uSway: { value: 0 }, uSizeVar: { value: 0 }, uFlicker: { value: 0 }, uSpeedVar: { value: 0 }, uMaxPx: particleMaxPx };
   const mat = new THREE.PointsMaterial({ size: 0.16, map: dotTex, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false });
   mat.onBeforeCompile = sh => {
-    Object.assign(sh.uniforms, u, { uTime: ambient.time });
+    Object.assign(sh.uniforms, u, { uTime: ambient.time, uPartFade: particleFade });
     sh.vertexShader = 'uniform float uTime, uSpeed, uSway, uSizeVar, uFlicker, uSpeedVar, uMaxPx;\nattribute float aRnd;\nvarying float vFlick;\n' + sh.vertexShader
       .replace('#include <begin_vertex>', `vec3 transformed = position;
         float spd = uSpeed * mix(1.0, 0.5 + aRnd, uSpeedVar);
@@ -686,7 +728,7 @@ function makeParticles(n, rMin, rMax, seed) {
       .replace('gl_PointSize = size;', 'gl_PointSize = size * mix(1.0, 0.35 + 1.3 * aRnd, uSizeVar);')
       // près de la caméra, un point deviendrait un grand disque transparent : coûteux à remplir, surtout sur mobile
       .replace('#include <fog_vertex>', 'gl_PointSize = min(gl_PointSize, uMaxPx);\n#include <fog_vertex>');
-    sh.fragmentShader = 'varying float vFlick;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.a *= vFlick;');
+    sh.fragmentShader = 'uniform float uPartFade;\nvarying float vFlick;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.a *= vFlick * uPartFade;');
   };
   const pts = new THREE.Points(g, mat);
   pts.frustumCulled = false;
@@ -2358,6 +2400,7 @@ updateMenuShift(false);
 // ---------------------------------------------------------------- changement de niveau de qualité
 function applyQuality(level) {
   const prev = Q;
+  wake(1000);
   qualityLevel = level;
   Q = QUALITY[level];
   renderer.setPixelRatio(Math.min(devicePixelRatio, Q.pr));
@@ -2372,6 +2415,7 @@ function applyQuality(level) {
     fieldMat.defines.FIELD_OCTAVE2 = Q.octave2;
     fieldMat.needsUpdate = true;
   }
+  if (prev.bakedNoise !== Q.bakedNoise) applyNoiseMode();
   if (prev.shadow !== Q.shadow || prev.soft !== Q.soft) {
     sun.shadow.mapSize.set(Q.shadow, Q.shadow);
     if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
@@ -2424,13 +2468,32 @@ function fieldNeedsRender() {
   return moved || fieldFrame++ % Q.fieldEvery === 0;
 }
 
+// Rendu à la demande (niveaux sans « live ») : une image n'est recalculée que si quelque chose bouge
+// (animation, caméra, pièce sélectionnée…) ou juste après une action ; sinon l'image affichée reste valable.
+// Le temps des animations (animT) n'avance que sur les images rendues : rien ne saute à la reprise.
+// Les particules, qui sinon resteraient figées en l'air, s'effacent doucement avant l'arrêt et reviennent à la reprise.
+let wakeUntil = performance.now() + 2000, animT = 0;
+function wake(ms = 400) { wakeUntil = Math.max(wakeUntil, performance.now() + ms); }
+for (const ev of ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'keydown', 'resize', 'fullscreenchange'])
+  addEventListener(ev, () => wake(), { capture: true, passive: true });
+document.addEventListener('visibilitychange', () => wake());
+
 const clock = new THREE.Clock();
 let frameNo = 0;
 renderer.setAnimationLoop(() => {
-  frameNo++;
   const rawDt = clock.getDelta();
+  const moving = tweens.length || particles.length || riseAnim || shadowDirty || selected >= 0 || hintMark.visible
+    || controls.autoRotate || fieldMat.uniforms.uFade.value < 1;
+  if (moving) wake(200);
+  const awake = Q.live || performance.now() <= wakeUntil;
+  if (!awake && particleFade.value <= 0) {
+    if (controls.update()) wake(200); // l'inertie de la caméra relance le rendu
+    return;
+  }
+  frameNo++;
   autoQuality(rawDt);
-  const dt = Math.min(rawDt, 0.05), t = clock.elapsedTime;
+  const dt = Math.min(rawDt, 0.05), t = (animT += dt);
+  particleFade.value = awake ? Math.min(1, particleFade.value + dt / 0.5) : Math.max(0, particleFade.value - dt / 0.8);
   for (let i = tweens.length - 1; i >= 0; i--) {
     const tw = tweens[i];
     tw.t += dt;
@@ -2468,7 +2531,7 @@ renderer.setAnimationLoop(() => {
   if (tweens.length || riseAnim || shadowDirty || (selected >= 0 && frameNo % Q.shadowEvery === 0)) { renderer.shadowMap.needsUpdate = true; shadowDirty = false; }
   stepRise(dt);
   keepPanInBounds();
-  controls.update();
+  if (controls.update()) wake(200);
   if (fieldNeedsRender()) renderField();
   if (Q.post) composer.render();
   else renderer.render(scene, camera);
