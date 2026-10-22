@@ -1156,12 +1156,14 @@ let pathMesh = null;
 const pathMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
 
 const exitHitGeo = new THREE.PlaneGeometry(1, 2);
-function showOverlays(moves) {
+// preview : coups d'une pièce adverse, dessinés en contour et plus discrets que les coups jouables
+function showOverlays(moves, preview = false) {
   overlayGroup.clear();
   const arrow = matchMedia('(pointer: coarse)').matches ? 0.85 : 0.62;
   for (const m of moves) {
     const isExit = m.kind === 'exit';
-    const mat = new THREE.MeshBasicMaterial({ map: isExit ? TEX.arrow : TEX.tile, color: COLORS[m.kind], transparent: true, opacity: m.kind === 'move' ? 0.8 : 0.9, depthWrite: false });
+    const base = m.kind === 'move' ? 0.8 : 0.9;
+    const mat = new THREE.MeshBasicMaterial({ map: isExit ? TEX.arrow : preview ? TEX.ring : TEX.tile, color: COLORS[m.kind], transparent: true, opacity: preview ? base - 0.25 : base, depthWrite: false });
     const mesh = new THREE.Mesh(isExit ? new THREE.PlaneGeometry(arrow, arrow) : tileGeo, mat);
     mesh.rotation.x = -Math.PI / 2;
     const [x, z] = cellXZ(m.to);
@@ -1369,6 +1371,8 @@ function turnCameraTo(side, dur = 1.1) {
 
 // ================================================================ état du jeu
 let state = null, history = [], selected = -1, selMoves = [], busy = false, gameToken = 0;
+// aperçu : une pièce adverse est sélectionnée pour montrer ses coups, sans pouvoir en jouer un
+let previewing = false;
 let showHeights = false, viewSide = 0, autoRotateView = true;
 // cfg : choix du menu ; play : réglages de la partie en cours, figés à son lancement
 // cfg.where : partie à deux sur cet écran ('local'), ou en ligne en créant ('create') ou rejoignant ('join') un salon
@@ -2111,11 +2115,13 @@ function clearHint() {
   showPath(null);
 }
 
-function select(pi) {
+function select(pi, preview = false) {
   clearSelection();
   selected = pi;
+  previewing = preview;
   selMoves = G.pieceMoves(state, pi);
-  showOverlays(selMoves);
+  showOverlays(selMoves, preview);
+  selRing.material.color.setHex(preview ? TEAM[state.pieces[pi].o].main : 0xffd36b);
   showCard(pi);
   // au doigt et zoomé : la vue glisse juste assez pour montrer la pièce et ses cases accessibles
   if (lastPointer !== 'mouse' && camera.position.distanceTo(controls.target) < controls.maxDistance * 0.9) {
@@ -2128,7 +2134,7 @@ function clearSelection() {
     const p = state.pieces[selected];
     if (p.st === G.ON_BOARD) pieceObjs[selected].grp.position.y = topY(state.h[G.idx(p.x, p.y)]);
   }
-  selected = -1; selMoves = [];
+  selected = -1; selMoves = []; previewing = false;
   shadowDirty = true;
   overlayGroup.clear();
   showPath(hintMove);
@@ -2192,8 +2198,9 @@ canvas.addEventListener('pointerup', e => {
   downAt = null;
   if (toolsWereOpen || !canPlay()) return;
   const h = pick(e);
-  if (h.move && selected >= 0) return void performMove(h.move);
-  if (h.pi >= 0 && state.pieces[h.pi].o === state.turn) return void (h.pi === selected ? clearSelection() : select(h.pi));
+  if (h.move && selected >= 0 && !previewing) return void performMove(h.move);
+  // une pièce adverse (ou une des siennes hors de son tour) s'ouvre en aperçu : ses coups sont montrés, pas jouables
+  if (h.pi >= 0) return void (h.pi === selected ? clearSelection() : select(h.pi, state.pieces[h.pi].o !== state.turn));
   clearSelection();
 });
 const canPlay = () => !!state && !busy && !reviewing && !state.over && isHuman(state.turn);
@@ -2212,7 +2219,7 @@ function onHover(e) {
   hover = h;
   // pièce survolée
   pieceObjs.forEach((o, pi) => o.body.material.emissive.setHex(pi === h.pi && pi !== selected ? 0x2a2a2a : 0x000000));
-  canvas.style.cursor = (h.move || (h.pi >= 0 && state.pieces[h.pi].o === state.turn && isHuman(state.turn))) && !busy ? 'pointer' : 'default';
+  canvas.style.cursor = ((h.move && !previewing) || h.pi >= 0) && !busy ? 'pointer' : 'default';
   // case survolée
   if (h.cell >= 0 && !busy) {
     const [x, z] = cellXZ(h.cell);
@@ -2332,6 +2339,7 @@ function showCard(pi) {
   card.innerHTML = `
     <div class="head"><span class="glyph" style="color:${TEAM[p.o].css}">${G.TYPE_GLYPHS[p.t]}</span>
       <div><div class="title">${G.TYPE_NAMES[p.t]}</div><div class="owner">${G.PLAYER_NAMES[p.o]} · hauteur ${state.h[G.idx(p.x, p.y)]}</div></div></div>
+    ${previewing && pi === selected ? '<div class="preview-tag">Aperçu de ses coups · non jouables</div>' : ''}
     <div class="stats"><div class="stat"><b>${G.MOVE[p.t]}</b><span><i style="background:${(theme.pips || PIP_DEFAULT).base.color}"></i>Mouvement</span></div><div class="stat"><b>${G.STR[p.t]}</b><span><i style="background:${(theme.pips || PIP_DEFAULT).top.color}"></i>Force</span></div></div>
     <p>${G.TYPE_DESC[p.t]}</p>`;
   card.classList.remove('hidden-soft');
@@ -2853,7 +2861,7 @@ renderer.setAnimationLoop(() => {
   }
   // pulsation des cibles d'attaque
   for (const o of overlayGroup.children)
-    if (o.userData.move.kind !== 'move' && o.userData.move !== hover.move) o.material.opacity = 0.6 + 0.3 * Math.sin(t * 5);
+    if (o.userData.move.kind !== 'move' && o.userData.move !== hover.move) o.material.opacity = o.userData.baseOpacity - 0.15 + 0.15 * Math.sin(t * 5);
   updateAmbient(t, dt);
   // ombres recalculées à la demande ; la pièce sélectionnée qui flotte n'impose pas un recalcul à chaque image
   if (tweens.length || riseAnim || shadowDirty || (selected >= 0 && frameNo % Q.shadowEvery === 0)) { renderer.shadowMap.needsUpdate = true; shadowDirty = false; }
