@@ -1,0 +1,12 @@
+:root {
+  --display: 'Space Grotesk', Inter, system-ui, sans-serif;
+  --red: #e0484f; --blue: #4d8cf0; --gold: #f2c46d;
+  --glass: rgba(20, 22, 30, .62); --glass-2: rgba(255, 255, 255, .07);
+  --line: rgba(255, 255, 255, .12); --text: #eef0f4; --muted: #a8adbb;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #1b1e26; color: var(--text); font-family: Inter, system-ui, sans-serif; }
+#scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+button { font: inherit; color: inherit; cursor: pointer; }
+.glass { background: var(--glass); backdrop-filter: blur(14px) saturate(1.3); -webkit-backdrop-filter: blur(14px) saturate(1.3); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,.25); }
+.hidden { display: none !important; }

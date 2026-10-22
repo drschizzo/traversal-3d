@@ -1,0 +1,10 @@
+/* ---------- verdict immédiat (entraînement) */
+#feedback { position: fixed; left: 50%; bottom: 78px; transform: translateX(-50%); width: min(460px, calc(100vw - 32px)); padding: 10px 14px; font-size: 13px; line-height: 1.45; z-index: 7;
+  border-color: color-mix(in srgb, var(--c, #fff) 45%, transparent); max-height: calc(100vh - 200px); overflow: auto; animation: fbIn .25s ease-out; }
+@keyframes fbIn { from { opacity: 0; translate: 0 8px; } }
+#feedback h4 { font-family: var(--display); font-size: 12.5px; margin: 10px 0 4px; display: flex; align-items: center; gap: 7px; }
+.fb-line { display: flex; gap: 10px; align-items: baseline; }
+.fb-grade { font-family: var(--display); font-weight: 700; white-space: nowrap; }
+.fb-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 8px; flex-wrap: wrap; }
+.fb-actions .mini { font-size: 12px; padding: 5px 10px; }
+.fb-more { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 2px; }

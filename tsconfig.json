@@ -1,0 +1,18 @@
+{
+  // Contrôle des types du JavaScript (JSDoc) sans compilation : npm run typecheck
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable", "WebWorker"],
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "types": ["vite/client"]
+  },
+  "include": ["core", "web", "server/room.js"],
+  "exclude": ["dist", "node_modules"]
+}

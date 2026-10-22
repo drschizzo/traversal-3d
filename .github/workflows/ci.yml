@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  engine:
+    name: Moteur Rust
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain (engine/rust-toolchain.toml)
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
+      - name: Clippy (erreurs probables seulement)
+        run: cargo clippy --release --all-targets -- -A clippy::all -D clippy::correctness -D clippy::suspicious -D clippy::perf
+      - name: Tests
+        run: cargo test --release
+      - name: Le WebAssembly publié correspond au code
+        run: |
+          cargo build --release --lib --target wasm32-unknown-unknown
+          cmp target/wasm32-unknown-unknown/release/traversal_engine.wasm traversal.wasm \
+            || { echo "::error::engine/traversal.wasm est périmé : lancer engine/build.sh et le committer"; exit 1; }
+      - name: Banc natif (pour le test de parité)
+        run: cargo build --release --bin selfplay
+      - uses: actions/upload-artifact@v4
+        with:
+          name: selfplay
+          path: engine/target/release/selfplay
+
+  web:
+    name: Jeu et serveur
+    runs-on: ubuntu-latest
+    needs: engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: selfplay
+          path: engine/target/release
+      - run: chmod +x engine/target/release/selfplay
+      - name: Analyse statique
+        run: npm run lint
+      - name: Types (JSDoc)
+        run: npm run typecheck
+      - name: Tests (règles, parité avec Rust, codec)
+        run: npm test
+      - name: Construction du jeu
+        run: npm run build
+
+  e2e:
+    name: Parcours dans un navigateur
+    runs-on: ubuntu-latest
+    needs: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+      - run: npm ci
+      - run: npm ci --prefix server
+      - run: npx playwright install --with-deps chromium
+      - name: Menu, bot, partie par lien, partie en ligne (wrangler dev)
+        run: npm run e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright
+          path: test-results/

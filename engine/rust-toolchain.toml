@@ -1,0 +1,5 @@
+# Version figée : engine/traversal.wasm se reconstruit alors à l'octet près (vérifié par la CI)
+[toolchain]
+channel = "1.66.1"
+targets = ["wasm32-unknown-unknown"]
+components = ["clippy"]

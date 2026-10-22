@@ -1,0 +1,21 @@
+{
+  "VERSION": 1,
+  "SIZE": 1024,
+  "IN_HEIGHTS": 0,
+  "IN_PIECES": 100,
+  "PIECE_STRIDE": 5,
+  "IN_TURN": 160,
+  "IN_PLY": 161,
+  "IN_SCORE": 162,
+  "IN_CROSSED": 164,
+  "OUT_DEPTH": 200,
+  "OUT_NODES": 201,
+  "OUT_SCORE": 202,
+  "OUT_ALTS_LEN": 210,
+  "OUT_ALTS": 211,
+  "ALTS_MAX": 4,
+  "OUT_PV_LEN": 230,
+  "OUT_PV": 231,
+  "PV_MAX": 16,
+  "OUT_TURNS": 400
+}

@@ -1,0 +1,41 @@
+/* ---------- panneau d'analyse */
+#coach { position: fixed; top: var(--panel-top, 72px); right: 16px; width: 330px; max-height: calc(100vh - var(--panel-top, 72px) - var(--panel-gap, 80px)); overflow: auto; padding: 14px 16px; font-size: 12.5px; line-height: 1.45; z-index: 5; }
+#coach h4 { font-family: var(--display); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 14px 0 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+#coach p { margin: 6px 0; }
+#coach .muted { color: var(--muted); }
+#coach .foot { font-size: 11px; margin-top: 12px; }
+.coach-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.coach-head .tag { font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--gold); }
+.coach-head .who { font-weight: 700; font-size: 12px; }
+.coach-move { font-family: var(--display); font-weight: 600; font-size: 16px; margin-bottom: 10px; }
+.coach-wait { display: flex; gap: 10px; align-items: center; color: var(--muted); }
+/* conseil : le coup à jouer en tête, en clair, avec de quoi le jouer d'un geste ; le détail se replie */
+.hint-box { border: 1px solid rgba(255,211,107,.55); background: rgba(255,211,107,.08); border-radius: 12px; padding: 10px 12px; margin: 6px 0 12px; }
+.hint-box .what { font-family: var(--display); font-weight: 600; font-size: 15px; line-height: 1.35; }
+/* les boutons passent à la ligne plutôt que de déborder d'un panneau étroit (téléphone) */
+.hint-cta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.hint-cta button { flex: 1 1 auto; min-width: 0; margin: 0; padding: 8px 10px; font-size: 13px; }
+#coach details > summary { cursor: pointer; list-style: none; font-size: 12px; color: var(--muted); margin: 4px 0; }
+#coach details > summary::-webkit-details-marker { display: none; }
+#coach details > summary::before { content: '▸ '; }
+#coach details[open] > summary::before { content: '▾ '; }
+.eval-bar { position: relative; height: 20px; border-radius: 6px; overflow: hidden; background: var(--blue); font-size: 10.5px; font-weight: 700; }
+.eval-bar i { position: absolute; inset: 0 auto 0 0; background: var(--red); transition: width .5s; }
+.eval-bar span { position: absolute; top: 3px; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.5); }
+.eval-bar .l { left: 7px; } .eval-bar .r { right: 7px; }
+.verdict { color: #dfe2e9; }
+.spark { width: 100%; height: 46px; margin-top: 4px; background: var(--glass-2); border-radius: 6px; }
+.spark polyline { fill: none; stroke: var(--gold); stroke-width: 1.8; vector-effect: non-scaling-stroke; }
+.spark .mid { stroke: rgba(255,255,255,.2); stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.reasons { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.reasons li { display: flex; gap: 8px; }
+.reasons .ic { flex: none; width: 18px; text-align: center; }
+.plan { margin: 0; padding-left: 0; list-style: none; counter-reset: p; display: grid; gap: 3px; }
+.plan li, .alts li { padding: 4px 6px; border-radius: 6px; cursor: default; }
+.plan li:hover, .alts li:hover { background: var(--glass-2); }
+.plan li i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; }
+.alts { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.alts li { display: flex; justify-content: space-between; gap: 8px; }
+.alts b { color: #f0a8a8; font-weight: 600; white-space: nowrap; }
+.mini { background: var(--glass-2); border: 1px solid var(--line); border-radius: 7px; padding: 3px 8px; font-size: 10.5px; letter-spacing: .02em; text-transform: none; color: var(--text); font-family: Inter, system-ui, sans-serif; }
+.mini.on { background: rgba(242,196,109,.18); color: var(--gold); border-color: rgba(242,196,109,.5); }

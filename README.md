@@ -64,7 +64,8 @@ Les règles complètes et officielles sont sur [traversalgame.com/rules](https:/
   adverse), ce qu'il fallait jouer, la suite rejouée sur le plateau, et un exercice pour retrouver soi-même un
   meilleur coup. Les fautes sont rangées par thème, avec le principe du [guide de stratégie](docs/guide-strategie.md)
   à travailler ; la progression d'une partie à l'autre s'affiche dans le menu.
-- **Un bot rapide** : c'est un moteur écrit en Rust et compilé en WebAssembly (`engine/`), qui tourne dans un Web Worker :
+- **Un bot rapide** : c'est un moteur écrit en Rust et compilé en WebAssembly (`engine/`), qui tourne dans un Web Worker
+  (et hors ligne, une fois le jeu visité) :
   negamax alpha-bêta avec table de transpositions, ~1 million de positions/s dans le navigateur,
   une dizaine de coups d'avance en niveau difficile.
 - **Plateaux générés** avec 6 modes de terrain (aléatoire, montagnes, vallées, hautes terres, bois, désert)
@@ -91,51 +92,62 @@ particularités de chaque terrain.
 
 ## Lancer le jeu
 
-Le projet n'a aucune étape de build : ce sont des modules ES, avec Three.js chargé depuis un CDN.
-Il faut simplement le servir en HTTP (ouvrir `index.html` directement ne fonctionne pas, à cause des modules et du Web Worker) :
+Il faut Node.js (20 ou plus). Le jeu est servi et construit par [Vite](https://vite.dev) :
 
 ```bash
-python3 serve.py        # puis ouvrir http://localhost:8765
+npm install        # une seule fois
+npm run dev        # puis ouvrir http://localhost:5173
 ```
 
-`serve.py` est un petit serveur local qui désactive le cache du navigateur, pratique pendant le développement.
-N'importe quel serveur statique convient aussi, par exemple `python3 -m http.server`.
+Les modifications s'affichent aussitôt. Pour les parties en ligne en développement, lancer aussi le serveur des
+salons dans un second terminal (`npm run dev:server`, voir plus bas) : le serveur de Vite lui relaie les salons.
+
+| Commande | Rôle |
+|---|---|
+| `npm run dev` | jeu en développement, sur http://localhost:5173 |
+| `npm run dev:server` | serveur des salons (et jeu construit) sur http://localhost:8787 |
+| `npm run build` | jeu construit dans `dist/` |
+| `npm run check` | analyse statique, types et tests |
+| `npm run e2e` | parcours du jeu dans un navigateur (la première fois : `npx playwright install chromium`) |
+| `npm run engine` | recompile le moteur du bot (Rust → WebAssembly) |
+
+L'organisation du code est décrite dans [docs/architecture.md](docs/architecture.md).
 
 ### Serveur des parties en ligne
 
-Les salons tournent sur Cloudflare Workers avec un Durable Object par salon (`server/`), qui importe `game.js`
-tel quel et valide chaque coup. Le même Worker sert aussi les fichiers du jeu : pages et salons sont alors sur
-la même origine. Rien n'est facturé quand personne ne joue (hibernation des WebSockets), et l'offre gratuite
+Les salons tournent sur Cloudflare Workers avec un Durable Object par salon (`server/`), qui importe les règles
+du jeu (`core/`) telles quelles et valide chaque coup. Le même Worker sert aussi le jeu construit (`dist/`) : pages
+et salons sont alors sur la même origine. Wrangler construit le jeu lui-même avant chaque déploiement et au
+lancement de `wrangler dev` (`build` dans `server/wrangler.jsonc`). Rien n'est facturé quand personne ne joue (hibernation des WebSockets), et l'offre gratuite
 suffit largement.
 
-Le jeu choisit son serveur de salons tout seul (en tête de `net.js`) :
+Le jeu choisit son serveur de salons tout seul (`web/config.js`) :
 
 | Page servie depuis | Salons utilisés |
 |---|---|
 | `localhost:8787` (`wrangler dev`) ou un domaine `*.workers.dev` | la même origine |
-| n'importe où ailleurs (GitHub Pages, `serve.py`, autre hébergeur) | la constante `DEFAULT_SERVER` |
+| `npm run dev` (port 5173) | la même origine, relayée vers `localhost:8787` |
+| n'importe où ailleurs (autre hébergeur) | la constante `DEFAULT_SERVER` |
 | n'importe où, avec `?server=https://…` dans l'adresse | le serveur indiqué |
 
 #### Tester en local
 
-Il faut Node.js (18 ou plus). `wrangler dev` simule localement le Worker, les Durable Objects et leur stockage
-SQLite : aucun compte Cloudflare n'est nécessaire.
+`wrangler dev` simule localement le Worker, les Durable Objects et leur stockage SQLite : aucun compte Cloudflare
+n'est nécessaire.
 
 ```bash
-cd server
-npm install        # une seule fois : installe wrangler
-npx wrangler dev   # ou : npm run dev
+npm install --prefix server   # une seule fois : installe wrangler
+npm run dev:server            # ou, dans server/ : npx wrangler dev
 ```
 
-Le jeu complet et les salons sont alors servis sur **http://localhost:8787** : sur ce port, le jeu utilise les
-salons locaux. Servi autrement (par `serve.py` sur le port 8765, par exemple), il s'adresse au serveur de
-`DEFAULT_SERVER` ; `?server=http://localhost:8787` dans l'adresse force le serveur local. Le Worker se recharge
-tout seul quand `server/worker.js` ou `game.js` change ; les fichiers du jeu sont relus à chaque requête.
-Les salons créés sont gardés dans `server/.wrangler/` (supprimer ce dossier repart de zéro).
+Le jeu construit et les salons sont alors servis sur **http://localhost:8787**. Le Worker se recharge tout seul
+quand le serveur change, et le jeu est reconstruit quand `web/` ou `core/` changent. Pendant le développement du
+jeu, `npm run dev` (port 5173) relaie les salons vers ce serveur. Les salons créés sont gardés dans
+`server/.wrangler/` (supprimer ce dossier repart de zéro).
 
 Pour jouer contre soi-même :
 
-1. Ouvrir http://localhost:8787, choisir *À deux* → *Créer un salon*, puis *Créer le salon* : un code s'affiche.
+1. Ouvrir http://localhost:8787 (ou http://localhost:5173), choisir *À deux* → *Créer un salon*, puis *Créer le salon* : un code s'affiche.
 2. Dans un second onglet (ou une fenêtre privée), ouvrir `http://localhost:8787/#r=CODE`, ou choisir
    *Rejoindre* et saisir le code. La partie démarre dans les deux onglets.
 3. Recharger un onglet en cours de partie teste la reconnexion : *Reprendre la partie* ramène à la position
@@ -163,9 +175,9 @@ préférez une autre adresse, un même compte pouvant héberger plusieurs Worker
 de votre compte, choisi à sa création.
 
 Cette adresse sert à la fois le jeu et les salons : si vous ne publiez le jeu que là, il n'y a rien d'autre à
-régler. Si vous l'hébergez **aussi** ailleurs (GitHub Pages, un autre hébergeur statique), mettez l'adresse de
-votre Worker dans la constante `DEFAULT_SERVER`, en tête de `net.js` — sans quoi cette copie créerait ses salons
-sur le serveur d'origine.
+régler. Si vous publiez **aussi** le jeu construit (`npm run build`, dossier `dist/`) sur un autre hébergeur
+statique, mettez l'adresse de votre Worker dans la constante `DEFAULT_SERVER` de `web/config.js` — sans quoi
+cette copie créerait ses salons sur le serveur d'origine.
 
 Le déploiement peut ensuite être automatisé à chaque push grâce à **Workers Builds**, l'intégration Git de
 Cloudflare (*Workers & Pages* → votre Worker → *Settings* → *Build*) :
@@ -174,8 +186,11 @@ Cloudflare (*Workers & Pages* → votre Worker → *Settings* → *Build*) :
 |---|---|
 | Dépôt | votre dépôt, branche `main` |
 | Répertoire racine (*Root directory*) | `server` |
-| Commande de build | *(vide)* |
+| Commande de build | *(vide)* : `wrangler deploy` construit le jeu lui-même |
 | Commande de déploiement | `npx wrangler deploy` |
+
+Ce déploiement a lieu à chaque push, même si la CI (`.github/workflows/ci.yml` : analyse, types, tests, parcours
+dans un navigateur) échoue : regardez son résultat sur GitHub avant de pousser sur `main`.
 
 Enfin, posez une alerte de dépense sur le compte Cloudflare et surveillez la métrique de durée des
 Durable Objects les premières semaines : c'est elle qui décide de la facture si beaucoup de parties sont jouées.
@@ -185,14 +200,17 @@ Durable Objects les premières semaines : c'est elle qui décide de la facture s
 Le fichier `engine/traversal.wasm` est fourni ; il ne faut le recompiler qu'après avoir modifié le moteur Rust :
 
 ```bash
-rustup target add wasm32-unknown-unknown   # une seule fois
-engine/build.sh
+npm run engine     # ou engine/build.sh (rustup installe la version de Rust indiquée dans engine/rust-toolchain.toml)
 ```
+
+La version de Rust est figée pour que `engine/traversal.wasm` se reconstruise à l'octet près : la CI vérifie que le
+fichier publié correspond au code. L'échange entre le jeu et le moteur passe par un tampon dont l'organisation est
+décrite dans `engine/layout.json`, lu par le moteur et par le jeu.
 
 Le même crate fournit un banc d'essai natif multi-thread (`engine/src/bin/selfplay.rs`) :
 
 ```bash
-cd engine && cargo build --release
+cd engine && cargo build --release      # aussi nécessaire au test de parité des règles JS et Rust
 ./target/release/selfplay match games=400 a.nodes=100000 b.nodes=100000 b.legacy=1   # comparer deux réglages
 ./target/release/selfplay gen games=1000 nodes=100000 out=parties.jsonl            # parties pour les statistiques
 python3 analysis/analyze.py parties.jsonl                                          # rapport statistique
@@ -207,21 +225,14 @@ python3 analysis/analyze.py parties.jsonl                                       
 
 ## Structure
 
-| Fichier | Rôle |
+| Dossier | Rôle |
 |---|---|
-| `index.html` | Interface (HUD, menus, styles) |
-| `main.js` | Rendu Three.js : plateau, pièces, décor, effets, post-traitement, interactions |
-| `game.js` | Moteur de règles (pur, sans DOM) et générateur de terrain |
-| `ai-worker.js` | Web Worker du bot : charge `engine/traversal.wasm`, renvoie le coup et son analyse |
-| `coach.js` | Explication des coups à partir de l'analyse du moteur : idée, raisons par thème, pièces nommées sans coordonnées (*Analyse*, *Conseil*) |
-| `review.js` | Jugement des coups humains (entraînement, analyse de partie) : notes, réponse adverse, moments clés, exercices, bilan |
+| `core/` | Règles du jeu, terrain, coups, liens de partie, protocole en ligne : pur, partagé par le jeu, le serveur et les tests |
+| `web/` | Le jeu : `render/` (scène 3D), `session/` (déroulement d'une partie), `ui/` (interface), `coach/` (explications), `bot/` (client du moteur), `i18n/`, `styles/` |
 | `engine/` | Moteur du bot en Rust (règles, recherche, évaluation), banc d'essai et analyses statistiques |
-| `match.js` | Sérialisation compacte d'une partie (monde et coups) pour les liens, et relecture des coups |
-| `net.js` | Client des parties en ligne : création de salon, WebSocket, reconnexion |
-| `server/` | Worker Cloudflare et Durable Object `Room` des parties en ligne (`wrangler.jsonc`) |
-| `ai.js` | Ancien bot en JavaScript, utilisé en secours si le WebAssembly ne se charge pas |
-| `themes.js` | Définition des thèmes (palettes, matières, effets), documentée en tête de fichier |
-| `serve.py` | Serveur de développement sans cache |
+| `server/` | Worker Cloudflare : salons en ligne (`room.js`) et Durable Object (`worker.js`), configuration `wrangler.jsonc` |
+| `tests/`, `e2e/` | Tests unitaires (Vitest) et parcours dans un navigateur (Playwright) |
+| `docs/` | Guide de stratégie et [architecture](docs/architecture.md) |
 
 ## Crédits
 

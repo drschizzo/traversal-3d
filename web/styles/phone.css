@@ -1,0 +1,58 @@
+/* ---------- téléphones : barre d'outils repliée derrière un bouton, plateau dégagé */
+#btnTools, #rotateHint { display: none; }
+.menu-col { display: contents; }
+@media (orientation: landscape) and (max-height: 500px), (orientation: portrait) and (max-width: 500px) {
+  #btnTools { display: grid; place-items: center; position: fixed; width: 44px; height: 44px; padding: 0; border-radius: 13px; font-size: 22px; line-height: 1; z-index: 8; }
+  #btnTools[aria-expanded="true"] { background: rgba(60,52,34,.85); color: var(--gold); }
+  #hud #toolbar { display: none; flex-direction: column; align-items: stretch; gap: 2px; transform: none; z-index: 8; overflow: auto; background: rgba(20,22,30,.9); }
+  #hud.tools-open #toolbar { display: flex; }
+  #hud #toolbar button { text-align: left; font-size: 14px; padding: 10px 14px; }
+  #legend, #card, .side .sub, #toolbar .nav-ext { display: none; }
+  .side > div { min-width: 0; }
+  .side .name { overflow: hidden; text-overflow: ellipsis; }
+}
+/* paysage : scores et message à gauche, outils et analyse à droite, le plateau au centre */
+@media (orientation: landscape) and (max-height: 500px) {
+  :root { --gl: max(8px, env(safe-area-inset-left)); --gr: max(8px, env(safe-area-inset-right)); --gb: max(8px, env(safe-area-inset-bottom)); }
+  #btnTools { top: 8px; right: var(--gr); }
+  #hud #toolbar { top: 58px; right: var(--gr); bottom: auto; max-height: calc(100vh - 66px); }
+  #scoreboard { top: 8px; left: var(--gl); transform: none; flex-direction: column; width: 172px; padding: 4px; gap: 4px; }
+  .side, .side.p1 { flex-direction: row; text-align: left; min-width: 0; padding: 7px 10px; gap: 8px; }
+  .side .name { font-size: 12px; }
+  .side .pts, .side.p1 .pts { font-size: 22px; margin: 0 0 0 auto; }
+  #mid { flex-direction: row; justify-content: space-between; border: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 6px 10px; min-width: 0; }
+  #mid span { white-space: nowrap; }
+  #mid { gap: 10px; }
+  #status { left: var(--gl); bottom: var(--gb); transform: none; width: 172px; max-width: none; white-space: normal; align-items: flex-start; font-size: 12px; line-height: 1.35; padding: 9px 11px; }
+  #status .dot, #status .spinner { flex: none; margin-top: 2px; }
+  #coach, #review { top: 58px; right: var(--gr); left: auto; width: 224px; max-height: calc(100vh - 66px); padding: 12px; }
+  .hint-cta button { padding: 8px 6px; font-size: 12.5px; white-space: nowrap; }
+  #toast { top: auto; bottom: 10px; max-width: calc(100vw - 380px); white-space: normal; text-align: center; }
+  #feedback { bottom: var(--gb); width: auto; left: calc(var(--gl) + 182px); right: calc(var(--gr) + 54px); transform: none; max-height: calc(100vh - 20px); font-size: 12px; }
+  .modal.menu { padding: 8px; }
+  .menu-panel { width: min(800px, calc(100vw - 16px)); max-height: calc(100vh - 16px); padding: 16px 20px 12px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 22px; align-items: start; }
+  .brand { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+  .brand h1 { font-size: 26px; }
+  .brand p { margin: 0; font-size: 12.5px; }
+  .menu-col { display: block; min-width: 0; }
+  .block { margin-top: 14px; }
+  .seg.modes button { padding: 9px 10px; }
+  .seg.modes svg { width: 20px; height: 20px; margin-bottom: 2px; }
+  .opts { gap: 12px; }
+  .primary.play { margin-top: 12px; padding: 12px; }
+  .menu-foot { margin-top: 8px; }
+}
+/* portrait : tout en bas et en haut, avec une invitation à tourner le téléphone */
+@media (orientation: portrait) and (max-width: 500px) {
+  #btnTools { right: 8px; bottom: 12px; }
+  #hud #toolbar { right: 8px; bottom: 64px; top: auto; max-height: calc(100vh - 140px); }
+  #scoreboard { top: 8px; left: 8px; right: 8px; transform: none; }
+  .side { flex: 1; min-width: 0; padding: 6px 8px; gap: 6px; }
+  .side .name { font-size: 11.5px; }
+  .side .pts { font-size: 22px; }
+  #mid { padding: 0 6px; min-width: 0; font-size: 10px; }
+  #status { left: 8px; right: 60px; bottom: 12px; transform: none; max-width: none; min-height: 44px; white-space: normal; font-size: 12.5px; }
+  #rotateHint { display: flex; position: fixed; top: 76px; left: 50%; transform: translateX(-50%); align-items: center; gap: 8px; padding: 7px 8px 7px 14px; font-size: 12.5px; white-space: nowrap; }
+  #rotateHint.dismissed { display: none; }
+  #feedback { bottom: 66px; left: 8px; right: 8px; width: auto; transform: none; }
+}

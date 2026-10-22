@@ -1,7 +1,7 @@
 // Banc d'essai natif : vérification des règles, matchs entre réglages, génération de parties pour les statistiques.
 //
-//   selfplay terrain mode=random seeds=0..100          hauteurs générées (comparaison avec game.js)
-//   selfplay dump games=50                              parties aléatoires + coups légaux (comparaison avec game.js)
+//   selfplay terrain mode=random seeds=0..100          hauteurs générées (comparaison avec core/, tests/parity.test.js)
+//   selfplay dump games=50                              parties aléatoires + coups légaux (comparaison avec core/, tests/parity.test.js)
 //   selfplay match games=200 a.nodes=200000 b.legacy=1  paires de parties, couleurs inversées
 //   selfplay gen games=10000 nodes=150000 out=data.jsonl
 use std::collections::HashMap;
@@ -103,7 +103,7 @@ fn dump(a: &Args) {
             plies.push(format!("{{\"legal\":\"{}\",\"pick\":\"{}:{}:{}\",\"hash\":{}}}", keys.join(" "), m.pi, m.kind, m.to, s.hash == s.compute_hash(&b)));
             s = apply_move(&b, &s, m);
         }
-        println!("{{\"mode\":\"{}\",\"seed\":{},\"plies\":[{}],\"winner\":{},\"reason\":{},\"score\":[{},{}]}}", mode, seed, plies.join(","), s.winner, s.reason, s.score[0], s.score[1]);
+        println!("{{\"mode\":\"{}\",\"seed\":{},\"plies\":[{}],\"winner\":{},\"reason\":{},\"tiebreak\":{},\"score\":[{},{}]}}", mode, seed, plies.join(","), s.winner, s.reason, s.tiebreak, s.score[0], s.score[1]);
     }
 }
 

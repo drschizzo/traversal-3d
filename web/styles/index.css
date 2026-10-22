@@ -1,0 +1,12 @@
+/* Feuilles de style du jeu, par zone de l'interface */
+@import './base.css';
+@import './hud.css';
+@import './menu.css';
+@import './over.css';
+@import './coach.css';
+@import './review.css';
+@import './explain.css';
+@import './feedback.css';
+@import './review-guided.css';
+@import './modals.css';
+@import './phone.css';

@@ -1,4 +1,5 @@
-// Traversal — moteur de règles en Rust, portage fidèle de game.js
+// Traversal — moteur de règles en Rust, portage fidèle de core/rules.js et core/terrain.js
+// (tests/parity.test.js vérifie que les deux concordent)
 
 pub const N: usize = 10;
 pub const NC: usize = N * N;
