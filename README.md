@@ -41,9 +41,15 @@ Les règles complètes et officielles sont sur [traversalgame.com/rules](https:/
 
 ## Ce que propose cette version
 
-- **Trois modes** : 2 joueurs en local, contre un bot (facile, moyen, difficile, expert), ou **bot contre bot**
+- **Trois modes** : 2 joueurs en local ou en ligne, contre un bot (facile, moyen, difficile, expert), ou **bot contre bot**
   pour regarder jouer le bot le plus fort : pause, coup par coup, et navigation dans les coups déjà joués
   (◀ ▶ ou flèches du clavier) avec l'analyse de chacun, pendant ou après la partie.
+- **Jouer à deux en ligne** : *À deux* → *Créer un salon* donne un code de six lettres et un lien d'invitation ;
+  l'adversaire choisit *Rejoindre* ou ouvre simplement le lien. Sans compte : un onglet rechargé ou une connexion
+  coupée reprend la partie là où elle en était, et une revanche peut être proposée en fin de partie.
+- **Parties par lien** : le bouton 🔗 *Lien* copie une adresse qui contient toute la partie (monde et coups joués,
+  ~550 caractères pour 200 coups). L'ouvrir affiche la position, prête à continuer : pratique pour jouer par
+  correspondance, partager une position ou reprendre une partie sur un autre appareil.
 - **Apprendre du bot** : le panneau *Analyse* explique chaque coup du bot (chances de gain estimées, course des
   Sentinelles, captures, pièces mises à l'abri ou laissées en prise, menaces créées), montre la suite qu'il prévoit
   (traçable sur le plateau), les coups qu'il a écartés et ce qu'ils auraient coûté, et la courbe d'évaluation de la partie.
@@ -89,6 +95,54 @@ python3 serve.py        # puis ouvrir http://localhost:8765
 `serve.py` est un petit serveur local qui désactive le cache du navigateur, pratique pendant le développement.
 N'importe quel serveur statique convient aussi, par exemple `python3 -m http.server`.
 
+### Serveur des parties en ligne
+
+Les salons tournent sur Cloudflare Workers avec un Durable Object par salon (`server/`), qui importe `game.js`
+tel quel et valide chaque coup. Rien n'est facturé quand personne ne joue (hibernation des WebSockets),
+et l'offre gratuite suffit largement. Le Worker sert aussi le jeu lui-même : pages et salons partagent la même origine.
+
+#### Tester en local
+
+Il faut Node.js (18 ou plus). `wrangler dev` simule localement le Worker, les Durable Objects et leur stockage
+SQLite : aucun compte Cloudflare n'est nécessaire.
+
+```bash
+cd server
+npm install        # une seule fois : installe wrangler
+npx wrangler dev   # ou : npm run dev
+```
+
+Le jeu complet et les salons sont alors servis sur **http://localhost:8787** (et non sur le port 8765 de `serve.py`,
+qui ne connaît pas les salons). Le Worker se recharge tout seul quand `server/worker.js` ou `game.js` change ;
+les fichiers du jeu sont relus à chaque requête. Les salons créés sont gardés dans `server/.wrangler/`
+(supprimer ce dossier repart de zéro).
+
+Pour jouer contre soi-même :
+
+1. Ouvrir http://localhost:8787, choisir *À deux* → *Créer un salon*, puis *Créer le salon* : un code s'affiche.
+2. Dans un second onglet (ou une fenêtre privée), ouvrir `http://localhost:8787/#r=CODE`, ou choisir
+   *Rejoindre* et saisir le code. La partie démarre dans les deux onglets.
+3. Recharger un onglet en cours de partie teste la reconnexion : *Reprendre la partie* ramène à la position
+   en cours.
+
+Deux onglets du même navigateur partagent le `localStorage` où est gardée la session en ligne : après un
+rechargement, c'est la place du dernier onglet à s'être connecté qui est reprise. Une fenêtre privée, ou un autre
+navigateur, garde les deux joueurs bien séparés. Depuis un téléphone du même réseau Wi-Fi, lancer
+`npx wrangler dev --ip 0.0.0.0` et ouvrir `http://<adresse-IP-de-l'ordinateur>:8787`.
+
+#### Mettre en ligne
+
+```bash
+cd server
+npx wrangler login    # une seule fois
+npx wrangler deploy   # publie le Worker, les salons et le jeu sur https://traversal-online.<compte>.workers.dev
+```
+
+Pour que la version GitHub Pages utilise le serveur déployé, renseigner son adresse dans `DEFAULT_SERVER`
+en tête de `net.js` (ou, pour essayer, ajouter `?server=https://…` à l'adresse du jeu).
+Posez aussi une alerte de dépense sur le compte Cloudflare, et surveillez la métrique de durée des
+Durable Objects les premières semaines.
+
 ### Recompiler le bot
 
 Le fichier `engine/traversal.wasm` est fourni ; il ne faut le recompiler qu'après avoir modifié le moteur Rust :
@@ -125,6 +179,9 @@ python3 analysis/analyze.py parties.jsonl                                       
 | `coach.js` | Explication des coups du bot à partir de l'analyse du moteur (panneau *Analyse* et *Conseil*) |
 | `review.js` | Analyse de fin de partie : notation des coups humains, bilan, détail des fautes |
 | `engine/` | Moteur du bot en Rust (règles, recherche, évaluation), banc d'essai et analyses statistiques |
+| `match.js` | Sérialisation compacte d'une partie (monde et coups) pour les liens, et relecture des coups |
+| `net.js` | Client des parties en ligne : création de salon, WebSocket, reconnexion |
+| `server/` | Worker Cloudflare et Durable Object `Room` des parties en ligne (`wrangler.jsonc`) |
 | `ai.js` | Ancien bot en JavaScript, utilisé en secours si le WebAssembly ne se charge pas |
 | `themes.js` | Définition des thèmes (palettes, matières, effets), documentée en tête de fichier |
 | `serve.py` | Serveur de développement sans cache |

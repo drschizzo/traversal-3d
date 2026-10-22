@@ -12,6 +12,8 @@ import { chooseMove } from './ai.js';
 import { THEMES } from './themes.js';
 import { explain, renderAnalysis, hintSentence } from './coach.js';
 import { reviewMove, renderSummary, renderGraph, renderList, renderDetail } from './review.js';
+import { encodeMatch, decodeMatch, replay } from './match.js';
+import * as Net from './net.js';
 
 const LEVEL = 0.3;
 const topY = h => (h + 1) * LEVEL;
@@ -1369,9 +1371,12 @@ function turnCameraTo(side, dur = 1.1) {
 let state = null, history = [], selected = -1, selMoves = [], busy = false, gameToken = 0;
 let showHeights = false, viewSide = 0, autoRotateView = true;
 // cfg : choix du menu ; play : réglages de la partie en cours, figés à son lancement
-const cfg = { mode: 'bot', side: 0, level: 'medium', terrain: 'random' };
+// cfg.where : partie à deux sur cet écran ('local'), ou en ligne en créant ('create') ou rejoignant ('join') un salon
+const cfg = { mode: 'bot', side: 0, level: 'medium', terrain: 'random', where: 'local' };
+// play.mode : 'bot', 'pvp', 'bvb' ou 'online' (play.side est alors la couleur de ce joueur)
 const play = { mode: 'bot', side: 0, level: 'medium' };
-const isHuman = t => play.mode === 'pvp' || (play.mode === 'bot' && t === play.side);
+const hasSide = () => play.mode === 'bot' || play.mode === 'online';
+const isHuman = t => play.mode === 'pvp' || (hasSide() && t === play.side);
 // bot contre bot : lecture automatique, pause, coup par coup
 let paused = false, stepOnce = false, botThinking = false, hintPending = false;
 // revue des coups déjà joués (bot contre bot) : viewPly = position affichée (null = en direct)
@@ -1418,6 +1423,7 @@ const gameAtStake = () => gameActive() && history.length > 0;
 // ---------------------------------------------------------------- sauvegarde de la partie en cours
 const SAVE_KEY = 'traversal.game';
 function saveGame() {
+  if (play.mode === 'online') return; // la partie en ligne est gardée par le serveur (session dans net.js)
   try {
     if (!gameActive()) return localStorage.removeItem(SAVE_KEY);
     const moves = movesLog.map(({ move: m }) => ({ pi: m.pi, kind: m.kind, to: m.to, special: m.special }));
@@ -1431,28 +1437,69 @@ function restoreGame() {
   try { d = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch {}
   if (!d || d.v !== 1 || !G.TERRAIN_MODES.some(m => m[0] === d.terrain) || !Array.isArray(d.moves)) return false;
   if (!['bot', 'pvp', 'bvb'].includes(d.play?.mode) || ![0, 1].includes(d.play.side) || !LEVEL_NAMES[d.play.level]) return false;
-  let s = G.newGame(G.generateTerrain(d.terrain, d.seed >>> 0));
-  const hist = [], log = [];
+  const r = replay(d.seed >>> 0, d.terrain, d.moves);
+  if (!r) { try { localStorage.removeItem(SAVE_KEY); } catch {} return false; }
+  if (r.state.over) return false;
   Object.assign(play, d.play);
-  for (const m of d.moves) {
-    const legal = !s.over && G.allMoves(s).find(x => x.pi === m.pi && x.kind === m.kind && x.to === m.to && x.special === m.special);
-    if (!legal) { try { localStorage.removeItem(SAVE_KEY); } catch {} return false; }
-    hist.push(s);
-    log.push({ before: s, move: legal, human: isHuman(s.turn) });
-    s = G.applyMove(s, legal);
-  }
-  if (s.over) return false;
-  Object.assign(cfg, play, { terrain: d.terrain });
+  Object.assign(cfg, play, { terrain: d.terrain, where: 'local' });
   syncMenuChoices();
-  loadWorld(d.seed >>> 0, d.terrain, s);
-  history = hist;
-  movesLog = log;
+  installGame(d.seed >>> 0, d.terrain, r);
+  return true;
+}
+
+// installe une partie rejouée (replay de match.js) sur son monde, avec les réglages de play
+function installGame(seed, terrain, r) {
+  gameToken++;
+  closeReview(false);
+  evalHistory = [];
+  coachData = null;
+  paused = false;
+  stepOnce = false;
+  viewPly = null;
+  liveState = null;
+  analyses.clear();
+  clearHint();
+  clearSelection();
+  clearPlan();
+  if (state && seed === worldSeed && terrain === worldTerrain) { state = r.state; syncPieces(state); }
+  else loadWorld(seed, terrain, r.state);
+  history = r.before.slice();
+  movesLog = r.before.map((before, k) => ({ before, move: r.legal[k], human: isHuman(before.turn) }));
   inGame = true;
   setNames();
   setCoach(play.mode === 'bvb');
   updateControls();
-  return true;
 }
+
+// ---------------------------------------------------------------- parties par lien (#g=…)
+const pageUrl = () => location.origin + location.pathname + location.search;
+const matchLink = () => `${pageUrl()}#g=${encodeMatch({ seed: worldSeed, terrain: worldTerrain, moves: movesLog.map(x => x.move) })}`;
+
+async function copyText(text, done) {
+  try { await navigator.clipboard.writeText(text); toast(done); } catch { window.prompt('Copier ce lien :', text); }
+}
+
+// lien de partie dans l'adresse : la partie est rejouée en silence et s'affiche, à deux sur cet écran ;
+// lien d'invitation (#r=CODE) : renvoie le code du salon à rejoindre. L'adresse est ensuite nettoyée.
+function readLink() {
+  const h = new URLSearchParams(location.hash.slice(1)), g = h.get('g'), room = Net.normalizeCode(h.get('r'));
+  if (!g && !room) return null;
+  window.history.replaceState(null, '', pageUrl());
+  if (room) return Net.CODE_RE.test(room) ? { room } : null;
+  let d, r = null;
+  try { d = decodeMatch(g); r = replay(d.seed, d.terrain, d.moves); } catch {}
+  if (!r) { toast('Lien de partie invalide.'); return null; }
+  Object.assign(play, { mode: 'pvp', side: 0, level: cfg.level });
+  Object.assign(cfg, { mode: 'pvp', where: 'local', terrain: d.terrain });
+  syncMenuChoices();
+  installGame(d.seed, d.terrain, r);
+  saveGame();
+  updateMenuButtons();
+  enterGame();
+  toast(r.state.over ? 'Partie terminée chargée depuis le lien.' : `Partie chargée depuis le lien : ${d.moves.length} coup${d.moves.length > 1 ? 's' : ''} joué${d.moves.length > 1 ? 's' : ''}.`);
+  return { game: true };
+}
+addEventListener('hashchange', () => { if (location.hash.length > 1) location.reload(); });
 
 const LEVEL_NAMES = { easy: 'Facile', medium: 'Moyen', hard: 'Difficile', expert: 'Expert' };
 function newMatch() {
@@ -1478,6 +1525,10 @@ function newMatch() {
 }
 
 function setNames() {
+  if (play.mode === 'online') {
+    for (let o = 0; o < 2; o++) $('name' + o).textContent = `${o === play.side ? 'Vous' : 'Adversaire'} · ${G.PLAYER_NAMES[o]}`;
+    return;
+  }
   const bot = `Bot ${LEVEL_NAMES[play.level]}`;
   $('name0').textContent = play.mode === 'bot' ? (play.side === 0 ? 'Joueur · Rouge' : `${bot} · Rouge`) : play.mode === 'bvb' ? bot : 'Rouge';
   $('name1').textContent = play.mode === 'bot' ? (play.side === 1 ? 'Joueur · Bleu' : `${bot} · Bleu`) : play.mode === 'bvb' ? bot : 'Bleu';
@@ -1498,7 +1549,7 @@ function enterGame(delay = riseAnim ? 1900 : 900) {
   $('hud').classList.remove('hidden');
   layoutHud();
   controls.autoRotate = false;
-  viewSide = play.mode === 'bot' ? play.side : 0;
+  viewSide = hasSide() ? play.side : 0;
   panTo(0, 0, 0.8);
   turnCameraTo(viewSide, 1.4);
   busy = true;
@@ -1528,6 +1579,7 @@ function askBot(s, level = play.level, analyze = coachOn || play.mode === 'bvb')
 }
 
 async function nextTurn() {
+  if (play.mode === 'online' && onlineTurn()) return;
   updateHUD();
   updateControls();
   if (state.over) { busy = true; await wait(600); showGameOver(); return; }
@@ -1536,7 +1588,7 @@ async function nextTurn() {
     busy = false;
     updateControls();
     if (play.mode === 'pvp' && autoRotateView && viewSide !== state.turn) { viewSide = state.turn; turnCameraTo(viewSide); }
-    setStatus(`À ${state.turn === 0 ? 'Rouge' : 'Bleu'} de jouer — choisir une pièce`, state.turn);
+    setStatus(play.mode === 'online' ? 'À vous de jouer — choisir une pièce' : `À ${state.turn === 0 ? 'Rouge' : 'Bleu'} de jouer — choisir une pièce`, state.turn);
     return;
   }
   if (play.mode === 'bvb' && paused && !stepOnce) {
@@ -1570,7 +1622,9 @@ async function nextTurn() {
   await performMove(move);
 }
 
-async function performMove(m) {
+// fromNet : coup confirmé par le serveur. En ligne, le coup du joueur est d'abord envoyé, puis joué à son retour.
+async function performMove(m, fromNet = false) {
+  if (play.mode === 'online' && !fromNet) return sendMove(m);
   busy = true;
   const token = gameToken;
   clearHint();
@@ -1600,7 +1654,7 @@ function describeMove(s, m) {
 }
 
 function undo() {
-  if (!history.length || reviewing || play.mode === 'bvb' || busy) return;
+  if (!history.length || reviewing || play.mode === 'bvb' || play.mode === 'online' || busy) return;
   gameToken++;
   do { state = history.pop(); } while (history.length && !isHuman(state.turn));
   if (!isHuman(state.turn)) { history.push(state); state = history.pop(); }
@@ -1613,6 +1667,228 @@ function undo() {
   nextTurn();
 }
 
+// ---------------------------------------------------------------- partie en ligne (net.js, server/worker.js)
+// Le serveur fait foi : un coup du joueur est envoyé, puis joué quand le serveur le renvoie aux deux joueurs.
+// Les coups reçus attendent dans netQueue que l'animation en cours se termine.
+let net = null, netQueue = [], netWaiting = false, netResult = null, onlineOpp = false;
+let rematchAsked = false, rematchOffered = false;
+// salon en cours d'ouverture : 'create' ou 'join' (fenêtre du salon affichée), 'resume' (reprise au chargement)
+let lobbyIntent = null;
+
+function openRoom(code, token) {
+  net = Net.connect(code, token, { onMessage: onNet, onStatus: onNetStatus });
+}
+
+function leaveRoom(resign) {
+  if (!net) return;
+  if (resign) net.send({ type: 'resign' });
+  net.close();
+  net = null;
+  netQueue = [];
+  netWaiting = false;
+  Net.saveSession(null);
+}
+
+function resync() {
+  if (!net) return;
+  const { code, token } = net;
+  net.close();
+  openRoom(code, token);
+}
+
+async function startOnline(kind) {
+  leaveRoom(false);
+  if (kind === 'join') {
+    const code = Net.normalizeCode($('joinCode').value);
+    if (!Net.CODE_RE.test(code)) { toast('Le code du salon fait six lettres.'); $('joinCode').focus(); return; }
+    return joinRoom(code);
+  }
+  lobbyIntent = 'create';
+  showLobby('Nouveau salon', 'Création du salon…');
+  try {
+    const d = await Net.createRoom({ seed: worldSeed, terrain: worldTerrain, side: cfg.side });
+    if (lobbyIntent === 'create') openRoom(d.code, d.token);
+  } catch (e) {
+    hideLobby();
+    toast(e.message);
+  }
+}
+
+// rejoindre prend toujours la place libre : la reprise d'une place déjà occupée passe par resumeOnline
+function joinRoom(code) {
+  lobbyIntent = 'join';
+  showLobby('Rejoindre un salon', 'Connexion au salon…', code);
+  openRoom(code, null);
+}
+
+function joinFromLink(code) {
+  Object.assign(cfg, { mode: 'pvp', where: 'join' });
+  $('joinCode').value = code;
+  syncMenuChoices();
+  joinRoom(code);
+}
+
+function resumeOnline() {
+  const saved = Net.savedSession();
+  if (!saved) return;
+  lobbyIntent = 'resume';
+  openRoom(saved.code, saved.token);
+}
+
+function showLobby(title, text, code = '') {
+  $('lobbyTitle').textContent = title;
+  $('lobbyText').textContent = text;
+  $('lobbyCode').textContent = code;
+  $('btnLobbyCopy').classList.toggle('hidden', !code || lobbyIntent !== 'create');
+  $('lobby').classList.remove('hidden');
+}
+function hideLobby() {
+  $('lobby').classList.add('hidden');
+  lobbyIntent = null;
+}
+$('btnLobbyCopy').onclick = () => {
+  if (!net) return;
+  const url = Net.inviteLink(net.code);
+  if (navigator.share && compactMQ.matches) navigator.share({ title: 'Traversal', text: 'Une partie de Traversal ?', url }).catch(() => {});
+  else copyText(url, 'Lien d’invitation copié : envoyez-le à votre adversaire.');
+};
+$('btnLobbyCancel').onclick = () => {
+  hideLobby();
+  leaveRoom(false);
+  if (inGame && play.mode === 'online') abandonGame();
+};
+
+function onNet(msg) {
+  switch (msg.type) {
+    case 'state': return applyNetState(msg);
+    case 'move': netQueue.push(msg); return wakeTurn();
+    case 'reject': toast(msg.reason); netWaiting = false; return resync();
+    case 'over': netResult = msg; return wakeTurn();
+    case 'opponent':
+      onlineOpp = msg.status === 'joined';
+      if (onlineOpp && lobbyIntent === 'create') { hideLobby(); enterGame(); return; }
+      if (inGame && !liveNow().over) toast(onlineOpp ? 'Votre adversaire est connecté.' : 'Votre adversaire s’est déconnecté.');
+      return wakeTurn();
+    case 'rematch':
+      rematchOffered = true;
+      updateRematchButton();
+      toast('Votre adversaire propose une revanche.');
+      return;
+    case 'error': {
+      const quiet = lobbyIntent === 'resume';
+      hideLobby();
+      leaveRoom(false);
+      if (!quiet) toast(msg.msg);
+    }
+  }
+}
+
+function onNetStatus(status, code) {
+  const playing = inGame && play.mode === 'online';
+  if (status === 'reconnecting' && playing) setStatus('Connexion perdue — reconnexion…', liveNow().turn, true);
+  if (status !== 'closed') return;
+  net = null;
+  hideLobby();
+  if (code === 4000) toast('La partie a été ouverte dans un autre onglet.');
+  else { Net.saveSession(null); if (code === 4010) toast('Le salon a expiré.'); }
+  if (playing && !liveNow().over) { abandonGame(); openMenu(); }
+}
+
+// relance le tour si rien n'est en cours : partie affichée, pas d'animation, et pas de coup en préparation
+function wakeTurn() {
+  if (play.mode === 'online' && inGame && !animating && (!busy || netWaiting) && !$('hud').classList.contains('hidden')) nextTurn();
+}
+
+function applyNetState(msg) {
+  Net.saveSession({ code: net.code, token: msg.token });
+  onlineOpp = msg.opponent;
+  netResult = msg.result;
+  rematchAsked = !!msg.rematch?.[msg.you];
+  rematchOffered = !!msg.rematch?.[1 - msg.you];
+  const r = replay(msg.seed, msg.terrain, msg.moves);
+  if (!r) { toast('Partie illisible.'); hideLobby(); leaveRoom(false); return; }
+  const n = movesLog.length, mv = msg.moves;
+  const same = play.mode === 'online' && inGame && worldSeed === msg.seed && worldTerrain === msg.terrain && play.side === msg.you
+    && n <= mv.length && movesLog.every(({ move: m }, k) => m.pi === mv[k].pi && m.kind === mv[k].kind && m.to === mv[k].to);
+  if (same) {
+    // reconnexion : les coups manqués seront joués dans l'ordre ; un coup envoyé resté sans réponse est à rejouer
+    netQueue = mv.slice(n).map((m, k) => ({ ply: n + k, ...m }));
+    netWaiting = false;
+    if (!animating && !$('hud').classList.contains('hidden')) { busy = false; nextTurn(); }
+    return;
+  }
+  const intent = lobbyIntent;
+  if (intent === 'resume' && (r.state.over || msg.result)) { lobbyIntent = null; leaveRoom(false); return; } // rien à reprendre
+  Object.assign(play, { mode: 'online', side: msg.you, level: cfg.level });
+  Object.assign(cfg, { mode: 'pvp', where: cfg.where === 'join' ? 'join' : 'create', side: msg.you });
+  syncMenuChoices();
+  netQueue = [];
+  netWaiting = false;
+  $('over').classList.add('hidden');
+  installGame(msg.seed, msg.terrain, r);
+  updateMenuButtons();
+  if (intent === 'resume') {
+    lobbyIntent = null;
+    toast('Une partie en ligne est en cours : « Reprendre la partie » pour y revenir.');
+    return;
+  }
+  if (intent === 'create' && !msg.opponent && !mv.length) {
+    showLobby('Salon créé', 'En attente de votre adversaire…', net.code);
+    return;
+  }
+  hideLobby();
+  enterGame();
+}
+
+// tour d'une partie en ligne ; true si le tour est traité ici, false pour la suite habituelle de nextTurn
+function onlineTurn() {
+  if (animating) return true; // performMove relancera le tour
+  netQueue = netQueue.filter(m => m.ply >= state.ply);
+  const k = netQueue.findIndex(m => m.ply === state.ply);
+  if (k >= 0) {
+    const [m] = netQueue.splice(k, 1);
+    const legal = !state.over && G.allMoves(state).find(x => x.pi === m.pi && x.kind === m.kind && x.to === m.to);
+    if (!legal) { resync(); return true; }
+    netWaiting = false;
+    performMove(legal, true);
+    return true;
+  }
+  if (netWaiting) return true;
+  if (netResult && !state.over) state = { ...state, over: true, winner: netResult.winner, reason: netResult.reason };
+  if (state.over || isHuman(state.turn)) return false;
+  busy = false;
+  updateHUD();
+  updateControls();
+  setStatus(onlineOpp ? `À votre adversaire de jouer (${G.PLAYER_NAMES[state.turn]})…` : 'Votre adversaire est déconnecté : en attente de son retour…', state.turn, onlineOpp);
+  return true;
+}
+
+function sendMove(m) {
+  if (netWaiting) return;
+  if (!net?.send({ type: 'move', ply: state.ply, pi: m.pi, kind: m.kind, to: m.to })) { toast('Connexion perdue : coup non envoyé.'); return; }
+  busy = true;
+  netWaiting = true;
+  clearSelection();
+  setStatus('Coup envoyé…', state.turn, true);
+  updateControls();
+}
+
+function proposeRematch() {
+  if (!net) return toast('Le salon est fermé.');
+  net.send({ type: 'rematch' });
+  rematchAsked = true;
+  updateRematchButton();
+}
+function updateRematchButton() {
+  const b = $('btnAgain'), online = play.mode === 'online';
+  b.textContent = !online ? 'Rejouer' : rematchAsked ? 'Revanche proposée…' : rematchOffered ? 'Accepter la revanche' : 'Proposer une revanche';
+  b.disabled = online && (rematchAsked || !net);
+}
+
+document.addEventListener('visibilitychange', () => { if (!document.hidden) net?.wake(); });
+$('joinCode').addEventListener('input', e => { e.target.value = Net.normalizeCode(e.target.value); });
+$('joinCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('btnStart').click(); });
+
 // ---------------------------------------------------------------- contrôles bot contre bot et conseil
 const viewIndex = () => viewPly ?? history.length;
 // navigation possible : bot contre bot, hors analyse de partie et hors animation d'un coup
@@ -1621,8 +1897,10 @@ const canNavigate = () => play.mode === 'bvb' && !reviewing && !animating && !!s
 function updateControls() {
   const bvb = play.mode === 'bvb', k = viewIndex(), n = history.length, nav = canNavigate();
   for (const id of ['btnFirst', 'btnPrev', 'btnPlay', 'btnNext', 'btnLast']) $(id).classList.toggle('hidden', !bvb);
-  $('btnUndo').classList.toggle('hidden', bvb);
-  $('btnHint').classList.toggle('hidden', bvb);
+  const online = play.mode === 'online';
+  $('btnUndo').classList.toggle('hidden', bvb || online);
+  $('btnHint').classList.toggle('hidden', bvb || online);
+  $('btnCoach').classList.toggle('hidden', online);
   const live = viewPly === null ? state : liveState;
   const showPlay = paused || viewPly !== null;
   $('btnPlay').innerHTML = showPlay ? '⏵<span> Lecture</span>' : '⏸<span> Pause</span>';
@@ -2081,11 +2359,11 @@ function showGameOver() {
   const w = state.winner;
   let title;
   if (w === 2) title = 'Match nul';
-  else if (play.mode === 'bot') title = w === play.side ? 'Victoire' : 'Défaite';
+  else if (hasSide()) title = w === play.side ? 'Victoire' : 'Défaite';
   else title = `${G.PLAYER_NAMES[w]} l’emporte`;
   $('overTitle').textContent = title;
   // couleur d'ambiance : le gagnant (or pour un nul, gris pour une défaite contre le bot)
-  const lostVsBot = play.mode === 'bot' && w !== 2 && w !== play.side;
+  const lostVsBot = hasSide() && w !== 2 && w !== play.side;
   $('overCard').style.setProperty('--win', w === 2 ? '#f2c46d' : lostVsBot ? '#9aa1b2' : TEAM[w].css);
   $('overReason').textContent = state.reason + '.';
   const glyphs = (o, st) => state.pieces.filter(p => p.o === o && p.st === st).map(p => G.TYPE_GLYPHS[p.t]).join('');
@@ -2100,6 +2378,7 @@ function showGameOver() {
   const caps = movesLog.filter(x => x.move.kind === 'attack').length;
   $('overStats').textContent = `${state.ply} coups · ${caps} capture${caps > 1 ? 's' : ''} · ${worldLabel}`;
   $('btnReview').classList.toggle('hidden', !movesLog.some(x => x.human));
+  updateRematchButton();
   $('over').classList.remove('hidden');
   setStatus(title, w === 2 ? 0 : w);
 }
@@ -2134,8 +2413,9 @@ async function startReview() {
 
 function renderReview() {
   const done = reviewItems.filter(Boolean).length, total = reviewItems.length;
-  const names = play.mode === 'bot' ? ['Rouge', 'Bleu'].map((n, o) => (o === play.side ? `Joueur (${n})` : `Bot (${n})`)) : ['Rouge', 'Bleu'];
-  const sides = play.mode === 'bot' ? [play.side] : [0, 1];
+  const other = play.mode === 'online' ? 'Adversaire' : 'Bot';
+  const names = hasSide() ? ['Rouge', 'Bleu'].map((n, o) => (o === play.side ? `${play.mode === 'online' ? 'Vous' : 'Joueur'} (${n})` : `${other} (${n})`)) : ['Rouge', 'Bleu'];
+  const sides = hasSide() ? [play.side] : [0, 1];
   const r = reviewSel >= 0 ? reviewItems[reviewSel] : null;
   $('review').innerHTML = `
     <div class="rv-head"><b>Analyse de la partie</b><button class="mini" id="rvClose">Fermer</button></div>
@@ -2196,9 +2476,15 @@ $('themeSeg').querySelectorAll('button').forEach(b => {
   b.addEventListener('mouseleave', () => showThemeName(theme.id));
 });
 const showModeOptions = () => {
-  document.querySelectorAll('.bot-only').forEach(el => el.classList.toggle('hidden', cfg.mode !== 'bot'));
+  document.querySelectorAll('.side-opt').forEach(el => el.classList.toggle('hidden', !(cfg.mode === 'bot' || (cfg.mode === 'pvp' && cfg.where === 'create'))));
   document.querySelectorAll('.bots-only').forEach(el => el.classList.toggle('hidden', cfg.mode === 'pvp'));
+  document.querySelectorAll('.pvp-only').forEach(el => el.classList.toggle('hidden', cfg.mode !== 'pvp'));
+  document.querySelectorAll('.join-only').forEach(el => el.classList.toggle('hidden', !(cfg.mode === 'pvp' && cfg.where === 'join')));
+  // un salon rejoint impose son monde : la carte du monde ne sert qu'à celui qui le crée
+  $('worldCard').classList.toggle('hidden', cfg.mode === 'pvp' && cfg.where === 'join');
+  if (!gameActive()) $('btnStart').innerHTML = startLabel();
 };
+const startLabel = () => `${cfg.mode !== 'pvp' || cfg.where === 'local' ? 'Jouer' : cfg.where === 'create' ? 'Créer le salon' : 'Rejoindre le salon'} <span aria-hidden="true">→</span>`;
 // reflète cfg dans les sélecteurs du menu (après restauration d'une partie)
 function syncMenuChoices() {
   document.querySelectorAll('.seg[data-key]').forEach(seg => {
@@ -2217,7 +2503,8 @@ document.querySelectorAll('.seg').forEach(seg => {
     if ((key === 'terrain' || seg.classList.contains('locked')) && (b.classList.contains('sel') || !(await confirmAbandon()))) return;
     seg.querySelectorAll('button').forEach(x => x.classList.toggle('sel', x === b));
     cfg[key] = key === 'side' ? Number(b.dataset.v) : b.dataset.v;
-    if (key === 'mode') showModeOptions();
+    if (key === 'mode' || key === 'where') showModeOptions();
+    if (key === 'where' && cfg.where === 'join') $('joinCode').focus();
     if (key === 'terrain') previewTerrain();
     if (key === 'theme') { applyTheme(b.dataset.v); showThemeName(theme.id); }
   });
@@ -2249,6 +2536,7 @@ $('btnConfirmOk').onclick = () => closeConfirm(true);
 $('btnConfirmCancel').onclick = () => closeConfirm(false);
 
 function abandonGame() {
+  if (play.mode === 'online') leaveRoom(gameActive());
   gameToken++;
   if (viewPly !== null) { state = liveState; viewPly = null; }
   closeReview(false);
@@ -2269,7 +2557,7 @@ function abandonGame() {
 
 // partie en cours : « Reprendre » devient l'action principale, « Jouer » propose une nouvelle partie,
 // et les réglages de la partie (mode, couleur, niveau) sont figés
-const LOCKED_KEYS = ['mode', 'side', 'level'];
+const LOCKED_KEYS = ['mode', 'side', 'level', 'where'];
 function updateMenuButtons() {
   const active = gameActive();
   LOCKED_KEYS.forEach(k => {
@@ -2281,7 +2569,7 @@ function updateMenuButtons() {
   $('btnStart').classList.toggle('primary', !active);
   $('btnStart').classList.toggle('play', !active);
   $('btnStart').classList.toggle('ghost', active);
-  $('btnStart').innerHTML = active ? 'Nouvelle partie' : 'Jouer <span aria-hidden="true">→</span>';
+  $('btnStart').innerHTML = active ? 'Nouvelle partie' : startLabel();
 }
 
 function openMenu() {
@@ -2330,7 +2618,9 @@ function updateMenuShift(animated = true) {
 
 $('btnStart').onclick = async () => {
   autoFullscreen(); // avant toute attente : le navigateur n'accepte le plein écran que pendant le geste
-  if (await confirmAbandon()) startGame();
+  if (!(await confirmAbandon())) return;
+  if (cfg.mode === 'pvp' && cfg.where !== 'local') return startOnline(cfg.where);
+  startGame();
 };
 $('btnCustomize').onclick = () => {
   const open = $('worldCard').classList.toggle('open');
@@ -2361,7 +2651,11 @@ $('btnHeights').onclick = () => {
   $('btnHeights').classList.toggle('on', showHeights);
   if (heightLabels) heightLabels.visible = showHeights;
 };
-$('btnAgain').onclick = () => { $('over').classList.add('hidden'); previewTerrain(); startGame(); };
+$('btnAgain').onclick = () => {
+  if (play.mode === 'online') return proposeRematch();
+  $('over').classList.add('hidden'); previewTerrain(); startGame();
+};
+$('btnLink').onclick = () => copyText(matchLink(), 'Lien de la partie copié.');
 // retour au menu après la partie : le même monde, pièces au départ, prêt pour une revanche
 $('btnOverMenu').onclick = () => { $('over').classList.add('hidden'); abandonGame(); resetBoard(); openMenu(); };
 $('btnOverBoard').onclick = () => $('over').classList.add('hidden');
@@ -2393,9 +2687,13 @@ addEventListener('resize', () => {
 // ================================================================ boucle
 controls.autoRotate = true;
 controls.autoRotateSpeed = 0.5;
-if (!restoreGame()) previewTerrain();
+const link = readLink();
+if (!link?.game && (link?.room || !restoreGame())) previewTerrain();
 updateMenuButtons();
 updateMenuShift(false);
+// invitation dans l'adresse : on rejoint le salon ; sinon, reprise de la partie en ligne en cours
+if (link?.room) joinFromLink(link.room);
+else if (!link?.game) resumeOnline();
 
 // ---------------------------------------------------------------- changement de niveau de qualité
 function applyQuality(level) {

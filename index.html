@@ -124,6 +124,15 @@
   .world.open .world-body .label { margin: 12px 0 8px; }
   .world.open .world-body .label:first-child { margin-top: 0; }
   .seg.chips button { flex: 0 0 auto; padding: 6px 11px; font-size: 12px; border-radius: 99px; }
+  /* partie à deux : sur cet écran, ou en ligne dans un salon */
+  .seg.where button { min-width: 0; padding: 9px 6px; font-size: 12.5px; }
+  .code-input { width: 100%; padding: 11px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--glass-2); color: var(--text);
+    font-family: var(--display); font-size: 20px; font-weight: 600; letter-spacing: .4em; text-transform: uppercase; text-align: center; outline: none; }
+  .code-input:focus { border-color: rgba(242,196,109,.7); }
+  .code-input::placeholder { color: rgba(255,255,255,.18); }
+  .lobby-code { margin: 14px 0 6px; font-family: var(--display); font-weight: 700; font-size: 38px; letter-spacing: .3em; padding-left: .3em; color: var(--gold); user-select: all; }
+  .lobby-code:empty { display: none; }
+  .lobby-wait { display: flex; align-items: center; justify-content: center; gap: 10px; }
   .primary.play { margin-top: 24px; padding: 15px; font-size: 16px; border-radius: 14px; display: flex; justify-content: center; gap: 10px; }
   .primary.play span { transition: transform .2s; }
   .primary.play:hover span { transform: translateX(4px); }
@@ -371,6 +380,7 @@
     <button id="btnCoach" title="Afficher le raisonnement du bot">◎<span> Analyse</span></button>
     <button id="btnView" title="Basculer la vue">⟲<span> Vue</span></button>
     <button id="btnHeights" title="Afficher les hauteurs">▦<span> Hauteurs</span></button>
+    <button id="btnLink" title="Copier le lien de la partie : à envoyer à l’adversaire, ou pour la reprendre plus tard">🔗<span> Lien</span></button>
     <button id="btnRules" title="Règles">?<span> Règles</span></button>
     <button id="btnFull" title="Plein écran">⛶<span> Plein écran</span></button>
     <button id="btnMenu" title="Menu">☰<span> Menu</span></button>
@@ -401,13 +411,17 @@
       <div class="label">Mode de jeu</div>
       <div class="seg modes" data-key="mode">
         <button data-v="bot" class="sel"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2.5"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></svg><b>Contre le bot</b><small>Face à l’IA</small></button>
-        <button data-v="pvp"><svg viewBox="0 0 24 24"><circle cx="8" cy="8" r="3"/><circle cx="16.5" cy="9" r="2.5"/><path d="M2.5 19c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5M13.8 14.6c.8-.4 1.7-.6 2.7-.6 2.4 0 4.3 1.6 4.9 4.5"/></svg><b>À deux</b><small>Sur le même écran</small></button>
+        <button data-v="pvp"><svg viewBox="0 0 24 24"><circle cx="8" cy="8" r="3"/><circle cx="16.5" cy="9" r="2.5"/><path d="M2.5 19c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5M13.8 14.6c.8-.4 1.7-.6 2.7-.6 2.4 0 4.3 1.6 4.9 4.5"/></svg><b>À deux</b><small>Ici ou en ligne</small></button>
         <button data-v="bvb"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><b>Bot contre bot</b><small>Observer et apprendre</small></button>
       </div>
     </section>
 
     <section class="block opts">
-      <div class="opt bot-only"><div class="label">Couleur du joueur</div>
+      <div class="opt pvp-only"><div class="label">Partie à deux</div>
+        <div class="seg where" data-key="where"><button data-v="local" class="sel">Sur cet écran</button><button data-v="create">Créer un salon</button><button data-v="join">Rejoindre</button></div></div>
+      <div class="opt join-only"><div class="label">Code du salon</div>
+        <input id="joinCode" class="code-input" maxlength="8" placeholder="ABCDEF" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Code du salon"></div>
+      <div class="opt side-opt"><div class="label">Couleur du joueur</div>
         <div class="seg colors" data-key="side"><button data-v="0" class="sel"><i style="background:var(--red)"></i>Rouge <small>commence</small></button><button data-v="1"><i style="background:var(--blue)"></i>Bleu</button></div></div>
       <div class="opt bots-only"><div class="label">Niveau du bot</div>
         <div class="seg levels" data-key="level"><button data-v="easy"><span class="bars"><i class="on"></i><i class=""></i><i class=""></i><i class=""></i></span>Facile</button><button data-v="medium" class="sel"><span class="bars"><i class="on"></i><i class="on"></i><i class=""></i><i class=""></i></span>Moyen</button><button data-v="hard"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i></span>Difficile</button><button data-v="expert" title="8 secondes de réflexion par coup"><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span>Expert</button></div></div>
@@ -493,6 +507,16 @@
   </div>
 </div>
 
-<script type="module" src="./main.js?v=66"></script>
+<div id="lobby" class="modal hidden" role="dialog" aria-labelledby="lobbyTitle">
+  <div class="panel glass confirm">
+    <h2 id="lobbyTitle">Salon</h2>
+    <div class="lobby-code" id="lobbyCode"></div>
+    <p class="lobby-wait"><span class="spinner"></span><span id="lobbyText"></span></p>
+    <button class="primary" id="btnLobbyCopy">Copier le lien d’invitation</button>
+    <button class="ghost" id="btnLobbyCancel">Annuler</button>
+  </div>
+</div>
+
+<script type="module" src="./main.js?v=67"></script>
 </body>
 </html>

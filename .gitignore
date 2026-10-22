@@ -3,3 +3,5 @@
 __pycache__/
 engine/target/
 dist/
+node_modules/
+.wrangler/

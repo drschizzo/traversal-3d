@@ -1,0 +1,14 @@
+// Serveur des salons en ligne. Depuis ce dossier :
+//   npm install          (une seule fois)
+//   npx wrangler dev     → jeu et salons sur http://localhost:8787
+//   npx wrangler deploy  → déploiement sur Cloudflare (offre gratuite : Durable Objects SQLite)
+{
+  "name": "traversal-online",
+  "main": "worker.js",
+  "compatibility_date": "2026-09-01",
+  // le Worker sert aussi le jeu : même origine pour les pages et les salons
+  "assets": { "directory": "..", "binding": "ASSETS" },
+  "durable_objects": { "bindings": [{ "name": "ROOMS", "class_name": "Room" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
+  "observability": { "enabled": true }
+}
