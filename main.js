@@ -1475,8 +1475,29 @@ function installGame(seed, terrain, r) {
 const pageUrl = () => location.origin + location.pathname + location.search;
 const matchLink = () => `${pageUrl()}#g=${encodeMatch({ seed: worldSeed, terrain: worldTerrain, moves: movesLog.map(x => x.move) })}`;
 
-async function copyText(text, done) {
-  try { await navigator.clipboard.writeText(text); toast(done); } catch { window.prompt('Copier ce lien :', text); }
+// copie par champ temporaire : seul recours quand l'API presse-papiers est absente (page non sécurisée)
+// ou refusée par le navigateur ; elle doit rester dans le geste de l'utilisateur, donc être tentée en premier.
+function legacyCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;padding:0;border:0;opacity:0';
+  document.body.appendChild(ta);
+  const active = document.activeElement;
+  let ok = false;
+  try {
+    ta.focus();
+    ta.setSelectionRange(0, text.length);
+    ok = document.execCommand('copy');
+  } catch {}
+  ta.remove();
+  try { active?.focus?.(); } catch {}
+  return ok;
+}
+
+function copyText(text, done) {
+  if (legacyCopy(text)) return toast(done);
+  navigator.clipboard?.writeText(text).then(() => toast(done), () => toast('Copie impossible : ' + text));
 }
 
 // lien de partie dans l'adresse : la partie est rejouée en silence et s'affiche, à deux sur cet écran ;
@@ -2618,7 +2639,15 @@ function updateMenuShift(animated = true) {
 
 $('btnStart').onclick = async () => {
   autoFullscreen(); // avant toute attente : le navigateur n'accepte le plein écran que pendant le geste
+  const wasOnline = gameActive() && play.mode === 'online';
   if (!(await confirmAbandon())) return;
+  // partie en ligne quittée : on revient au menu, sans enchaîner aussitôt sur la création d'un salon
+  if (wasOnline) {
+    cfg.where = 'local';
+    syncMenuChoices();
+    updateMenuButtons();
+    return;
+  }
   if (cfg.mode === 'pvp' && cfg.where !== 'local') return startOnline(cfg.where);
   startGame();
 };
@@ -2690,6 +2719,7 @@ controls.autoRotateSpeed = 0.5;
 const link = readLink();
 if (!link?.game && (link?.room || !restoreGame())) previewTerrain();
 updateMenuButtons();
+showModeOptions(); // les options en ligne ne s'affichent qu'en mode « à deux »
 updateMenuShift(false);
 // invitation dans l'adresse : on rejoint le salon ; sinon, reprise de la partie en ligne en cours
 if (link?.room) joinFromLink(link.room);
