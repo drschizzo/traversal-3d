@@ -15,3 +15,7 @@ docs
 serve.py
 *.md
 LICENSE
+dist
+.gitignore
+.assetsignore
+.nojekyll

@@ -99,7 +99,9 @@ N'importe quel serveur statique convient aussi, par exemple `python3 -m http.ser
 
 Les salons tournent sur Cloudflare Workers avec un Durable Object par salon (`server/`), qui importe `game.js`
 tel quel et valide chaque coup. Rien n'est facturé quand personne ne joue (hibernation des WebSockets),
-et l'offre gratuite suffit largement. Le Worker sert aussi le jeu lui-même : pages et salons partagent la même origine.
+et l'offre gratuite suffit largement. Le serveur est déployé sur
+**https://traversal-online.drschizzo.workers.dev**, qui sert aussi le jeu lui-même ; la version GitHub Pages
+y crée ses salons (constante `DEFAULT_SERVER` en tête de `net.js`).
 
 #### Tester en local
 
@@ -112,8 +114,9 @@ npm install        # une seule fois : installe wrangler
 npx wrangler dev   # ou : npm run dev
 ```
 
-Le jeu complet et les salons sont alors servis sur **http://localhost:8787** (et non sur le port 8765 de `serve.py`,
-qui ne connaît pas les salons). Le Worker se recharge tout seul quand `server/worker.js` ou `game.js` change ;
+Le jeu complet et les salons sont alors servis sur **http://localhost:8787** : sur ce port, le jeu utilise les
+salons locaux. Servi autrement (par `serve.py` sur le port 8765, ou par GitHub Pages), il utilise le serveur
+déployé ; `?server=http://localhost:8787` dans l'adresse force le serveur local. Le Worker se recharge tout seul quand `server/worker.js` ou `game.js` change ;
 les fichiers du jeu sont relus à chaque requête. Les salons créés sont gardés dans `server/.wrangler/`
 (supprimer ce dossier repart de zéro).
 
@@ -138,8 +141,8 @@ npx wrangler login    # une seule fois
 npx wrangler deploy   # publie le Worker, les salons et le jeu sur https://traversal-online.<compte>.workers.dev
 ```
 
-Pour que la version GitHub Pages utilise le serveur déployé, renseigner son adresse dans `DEFAULT_SERVER`
-en tête de `net.js` (ou, pour essayer, ajouter `?server=https://…` à l'adresse du jeu).
+Un changement de `game.js` ou de `server/worker.js` demande un nouveau `wrangler deploy` : le serveur embarque
+sa propre copie des règles. Si le Worker change d'adresse, mettre à jour `DEFAULT_SERVER` dans `net.js`.
 Posez aussi une alerte de dépense sur le compte Cloudflare, et surveillez la métrique de durée des
 Durable Objects les premières semaines.
 

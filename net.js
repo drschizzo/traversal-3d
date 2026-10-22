@@ -1,9 +1,11 @@
 // Client des salons en ligne (server/worker.js) : création d'un salon, WebSocket, reconnexion automatique.
 
-// Adresse du Worker déployé (npx wrangler deploy, dans server/). Vide : même origine que la page,
-// ce qui suffit quand le Worker sert aussi le jeu (wrangler dev, ou le site *.workers.dev).
-const DEFAULT_SERVER = '';
-const SERVER = (new URLSearchParams(location.search).get('server') || DEFAULT_SERVER || location.origin).replace(/\/$/, '');
+// Adresse du Worker déployé (npx wrangler deploy, dans server/), utilisée par la version GitHub Pages.
+// Quand le Worker sert lui-même le jeu (wrangler dev sur le port 8787, ou le site *.workers.dev),
+// les salons sont sur la même origine que la page. ?server=… dans l'adresse force un autre serveur.
+const DEFAULT_SERVER = 'https://traversal-online.drschizzo.workers.dev';
+const servedByWorker = location.port === '8787' || location.hostname.endsWith('.workers.dev');
+const SERVER = (new URLSearchParams(location.search).get('server') || (servedByWorker ? location.origin : DEFAULT_SERVER)).replace(/\/$/, '');
 
 export const CODE_RE = /^[A-HJ-NP-Z]{6}$/;
 export const normalizeCode = s => (s || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 6);
