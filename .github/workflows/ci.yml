@@ -1,9 +1,12 @@
 name: CI
 
+# Lancement manuel seulement (onglet Actions → CI → Run workflow) : les vérifications se font en local avant de pousser
+# (voir le README). Pour la relancer à chaque push, ajouter sous « on: » :
+#   push:
+#     branches: [main]
+#   pull_request:
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   engine:

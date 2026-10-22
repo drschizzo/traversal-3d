@@ -189,8 +189,9 @@ Cloudflare (*Workers & Pages* → votre Worker → *Settings* → *Build*) :
 | Commande de build | *(vide)* : `wrangler deploy` construit le jeu lui-même |
 | Commande de déploiement | `npx wrangler deploy` |
 
-Ce déploiement a lieu à chaque push, même si la CI (`.github/workflows/ci.yml` : analyse, types, tests, parcours
-dans un navigateur) échoue : regardez son résultat sur GitHub avant de pousser sur `main`.
+Ce déploiement a lieu à chaque push sur `main`, sans attendre de tests : lancez-les en local avant de pousser
+(`npm run check`, puis `npm run e2e` ; et `cargo test` dans `engine/` si le moteur a changé). La CI
+(`.github/workflows/ci.yml`) fait les mêmes vérifications, mais ne se lance qu'à la main, depuis l'onglet *Actions*.
 
 Enfin, posez une alerte de dépense sur le compte Cloudflare et surveillez la métrique de durée des
 Durable Objects les premières semaines : c'est elle qui décide de la facture si beaucoup de parties sont jouées.
@@ -203,7 +204,7 @@ Le fichier `engine/traversal.wasm` est fourni ; il ne faut le recompiler qu'apr�
 npm run engine     # ou engine/build.sh (rustup installe la version de Rust indiquée dans engine/rust-toolchain.toml)
 ```
 
-La version de Rust est figée pour que `engine/traversal.wasm` se reconstruise à l'octet près : la CI vérifie que le
+La version de Rust est figée pour que `engine/traversal.wasm` se reconstruise à l'octet près : la CI (lancée à la main) vérifie que le
 fichier publié correspond au code. L'échange entre le jeu et le moteur passe par un tampon dont l'organisation est
 décrite dans `engine/layout.json`, lu par le moteur et par le jeu.
 

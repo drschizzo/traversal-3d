@@ -72,7 +72,7 @@ ces capacités (`mode().undo`, `mode().remote`) au lieu de tester le nom du mode
   par `web/bot/wasm-bridge.js` ; le moteur expose `layout_version()` et le jeu refuse un moteur d'une autre version.
 - `web/bot/client.js` : file de demandes servie par un Web Worker, avec priorités (coup du bot, puis conseil, puis
   analyse de partie), annulation (`AbortSignal`) et cache des analyses par clé de position (`core/position.js`).
-- `engine/traversal.wasm` est versionné ; la CI vérifie qu'il correspond au code (compilateur figé par
+- `engine/traversal.wasm` est versionné ; la CI vérifie, quand on la lance, qu'il correspond au code (compilateur figé par
   `engine/rust-toolchain.toml`).
 
 ## Le serveur
@@ -119,4 +119,6 @@ version de ces deux modules.
 | `npm run e2e` | le jeu construit dans Chromium : bot contre bot, partie par lien et son analyse, partie en ligne |
 | `cargo test` (dans `engine/`) | interface WebAssembly du moteur |
 
-La CI (`.github/workflows/ci.yml`) lance tout cela à chaque push et vérifie que le WebAssembly publié correspond au code.
+Ces vérifications se lancent en local avant de pousser. La CI (`.github/workflows/ci.yml`) fait la même chose, en
+vérifiant aussi que le WebAssembly publié correspond au code, mais seulement quand on la lance à la main
+(onglet *Actions* de GitHub) : Cloudflare déploie chaque push sur `main` sans l'attendre.
