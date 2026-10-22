@@ -135,14 +135,26 @@ navigateur, garde les deux joueurs bien séparés. Depuis un téléphone du mêm
 
 #### Mettre en ligne
 
+Chaque push sur `main` déploie automatiquement le Worker (salons et jeu) grâce à **Workers Builds**,
+l'intégration Git de Cloudflare : GitHub Pages et le serveur restent ainsi toujours à la même version des règles.
+Réglages du Worker `traversal-online` (*Settings* → *Build*) :
+
+| Réglage | Valeur |
+|---|---|
+| Dépôt | `drschizzo/traversal-3d`, branche `main` |
+| Répertoire racine (*Root directory*) | `server` |
+| Commande de build | *(vide)* |
+| Commande de déploiement | `npx wrangler deploy` |
+
+Le déploiement manuel reste possible :
+
 ```bash
 cd server
 npx wrangler login    # une seule fois
 npx wrangler deploy   # publie le Worker, les salons et le jeu sur https://traversal-online.<compte>.workers.dev
 ```
 
-Un changement de `game.js` ou de `server/worker.js` demande un nouveau `wrangler deploy` : le serveur embarque
-sa propre copie des règles. Si le Worker change d'adresse, mettre à jour `DEFAULT_SERVER` dans `net.js`.
+Si le Worker change d'adresse, mettre à jour `DEFAULT_SERVER` dans `net.js`.
 Posez aussi une alerte de dépense sur le compte Cloudflare, et surveillez la métrique de durée des
 Durable Objects les premières semaines.
 
