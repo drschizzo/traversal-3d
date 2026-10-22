@@ -10,8 +10,8 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import * as G from './game.js';
 import { chooseMove } from './ai.js';
 import { THEMES } from './themes.js';
-import { explain, renderAnalysis, hintSentence } from './coach.js';
-import { reviewMove, renderSummary, renderGraph, renderList, renderDetail } from './review.js';
+import { explain, renderAnalysis, renderHint, moveRegistry, moveText, sameMove, winProb, pct, esc, TOPICS, WIN } from './coach.js';
+import { reviewMove, summary, keyMoments, isError, renderSummary, renderLessons, renderGraph, renderKeyMoments, renderList, renderDetail, renderPuzzle, renderFeedback } from './review.js';
 import { encodeMatch, decodeMatch, replay } from './match.js';
 import * as Net from './net.js';
 
@@ -23,6 +23,8 @@ const TEAM = [
   { main: 0x2c68d6, dark: 0x102c66, css: '#4d8cf0' },
 ];
 const $ = id => document.getElementById(id);
+// icône de la barre d'outils (jeu de symboles au début de index.html)
+const icon = name => `<svg class="ic" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 
 // ================================================================ qualité graphique
 // Trois niveaux, plus « auto » (par défaut) : moyen d'emblée sur un appareil tactile, haut sinon, puis un cran de
@@ -1390,8 +1392,19 @@ const analyses = new Map(); // analyse de chaque coup du bot, par ply
 let coachOn = false, coachData = null, coachLabel = '', evalHistory = [], planShown = false;
 // le panneau d'analyse a été ouvert par « Conseil » : il se referme une fois le coup du joueur joué
 let coachForHint = false;
-// coups joués (état avant + coup), en parallèle de history, pour l'analyse de fin de partie
+// coups joués (état avant + coup, conseil utilisé), en parallèle de history, pour l'analyse de fin de partie
 let movesLog = [];
+// conseil en trois temps : niveau dévoilé (0 aucun, 1 piste, 2 pièce, 3 coup) et analyse de la position
+let hintLevel = 0, hintData = null;
+// mode Entraînement : chaque coup du joueur est jugé aussitôt (préférence gardée d'une partie à l'autre)
+let training = false;
+try { training = localStorage.getItem('traversal.training') === '1'; } catch {}
+const trainingOn = () => training && (play.mode === 'bot' || play.mode === 'pvp');
+// meilleur coup de chaque position, partagé par le conseil et l'entraînement ; coups déjà jugés, par position
+const analysisCache = new Map(), liveReviews = new Map();
+// verdict affiché après un coup du joueur ; awaitingCoach : après une faute, le bot attend que le joueur
+// reprenne son coup ou continue
+let feedback = null, feedbackOpen = false, feedbackBlocking = false, awaitingCoach = false, feedbackTimer = 0;
 
 // inGame : une partie a été lancée (ou restaurée) sur le monde affiché et n'a pas été abandonnée
 let worldSeed = 0, worldTerrain = 'random', inGame = false, worldLabel = '';
@@ -1462,6 +1475,7 @@ function installGame(seed, terrain, r) {
   viewPly = null;
   liveState = null;
   analyses.clear();
+  resetCoaching();
   clearHint();
   clearSelection();
   clearPlan();
@@ -1539,6 +1553,7 @@ function newMatch() {
   viewPly = null;
   liveState = null;
   analyses.clear();
+  resetCoaching();
   resetBoard();
   clearHint();
   clearSelection();
@@ -1603,6 +1618,26 @@ function askBot(s, level = play.level, analyze = coachOn || play.mode === 'bvb')
   });
 }
 
+// meilleur coup d'une position, au niveau du conseil ; une même position n'est calculée qu'une fois
+const hintBotLevel = () => (play.level === 'expert' ? 'expert' : 'hard');
+function analysisFor(s) {
+  if (!analysisCache.has(s)) {
+    if (analysisCache.size > 6) analysisCache.delete(analysisCache.keys().next().value);
+    analysisCache.set(s, askBot(s, hintBotLevel(), true));
+  }
+  return analysisCache.get(s);
+}
+// pièces nommées pour le joueur (« votre Sentinelle », « l’Avant-garde adverse »), gauche et droite vues de son côté ;
+// à deux sur cet écran, on s'adresse au camp qui joue (conseil, entraînement) ou on nomme les couleurs
+const coachCtx = (me = hasSide() ? play.side : -1) => ({ view: viewSide, me });
+
+function resetCoaching() {
+  analysisCache.clear();
+  liveReviews.clear();
+  awaitingCoach = false;
+  hideFeedback();
+}
+
 async function nextTurn() {
   if (play.mode === 'online' && onlineTurn()) return;
   updateHUD();
@@ -1614,12 +1649,14 @@ async function nextTurn() {
     updateControls();
     if (play.mode === 'pvp' && autoRotateView && viewSide !== state.turn) { viewSide = state.turn; turnCameraTo(viewSide); }
     setStatus(play.mode === 'online' ? 'À vous de jouer — choisir une pièce' : `À ${state.turn === 0 ? 'Rouge' : 'Bleu'} de jouer — choisir une pièce`, state.turn);
+    // entraînement : le bot prépare son jugement pendant que le joueur réfléchit
+    if (trainingOn()) analysisFor(state);
     return;
   }
   if (play.mode === 'bvb' && paused && !stepOnce) {
     busy = false;
     updateControls();
-    setStatus(`En pause — à ${G.PLAYER_NAMES[state.turn]} de jouer · ⏵ pour reprendre, ◀ pour revoir`, state.turn);
+    setStatus(`En pause — à ${G.PLAYER_NAMES[state.turn]} de jouer · Lecture pour reprendre, ◀ pour revoir`, state.turn);
     return;
   }
   stepOnce = false;
@@ -1634,7 +1671,7 @@ async function nextTurn() {
   if (token !== gameToken) return;
   if (info && move) {
     evalHistory = evalHistory.filter(h => h.ply < before.ply);
-    coachData = explain(before, move, info);
+    coachData = explain(before, move, info, { ctx: coachCtx() });
     coachLabel = 'Coup du bot';
     analyses.set(before.ply, coachData);
     evalHistory.push({ ply: before.ply, pRed: coachData.verdict.pRed });
@@ -1652,13 +1689,18 @@ async function performMove(m, fromNet = false) {
   if (play.mode === 'online' && !fromNet) return sendMove(m);
   busy = true;
   const token = gameToken;
+  const hintUsed = hintLevel;
   clearHint();
   if (coachForHint && isHuman(state.turn)) setCoach(false);
   clearSelection();
   clearPlan();
+  // le verdict du coup précédent reste lisible pendant la réponse du bot
+  if (isHuman(state.turn)) hideFeedback();
   const before = state;
+  // entraînement : le jugement du coup se calcule pendant son animation
+  const verdict = isHuman(before.turn) && trainingOn() ? judgeMove(before, m) : null;
   history.push(before);
-  movesLog.push({ before, move: m, human: isHuman(before.turn) });
+  movesLog.push({ before, move: m, human: isHuman(before.turn), hint: hintUsed });
   state = G.applyMove(before, m);
   saveGame();
   setStatus(describeMove(before, m), before.turn);
@@ -1668,7 +1710,77 @@ async function performMove(m, fromNet = false) {
   animating = false;
   if (token !== gameToken) return;
   syncPieces(state);
+  if (verdict) {
+    if (!state.over) setStatus('Le bot examine votre coup…', before.turn, true);
+    const r = await verdict;
+    if (token !== gameToken) return;
+    // une erreur ou une gaffe arrête la partie le temps de choisir : reprendre le coup, ou continuer
+    if (r && showFeedback(r) && !state.over) {
+      busy = false;
+      awaitingCoach = true;
+      updateControls();
+      setStatus('Reprenez le coup, ou continuez la partie', before.turn);
+      return;
+    }
+  }
   nextTurn();
+}
+
+// jugement d'un coup du joueur (entraînement), gardé pour l'analyse de fin de partie
+function judgeMove(before, m) {
+  const think = s => (s === before ? analysisFor(s) : askBot(s, 'review', true));
+  return reviewMove(think, before, m, coachCtx(before.turn))
+    .then(r => { if (r) liveReviews.set(before, r); return r; }, () => null);
+}
+
+// ---------------------------------------------------------------- verdict immédiat (entraînement)
+function showFeedback(r) {
+  feedback = r;
+  feedbackOpen = false;
+  feedbackBlocking = ['mistake', 'blunder'].includes(r.grade);
+  clearTimeout(feedbackTimer);
+  // un bon coup s'affiche un instant ; une faute reste jusqu'au coup suivant
+  if (!isError(r)) feedbackTimer = setTimeout(hideFeedback, 2600);
+  renderFeedbackPanel();
+  return feedbackBlocking;
+}
+function renderFeedbackPanel() {
+  const el = $('feedback');
+  if (!feedback) return void el.classList.add('hidden');
+  const reg = moveRegistry();
+  el.innerHTML = renderFeedback(feedback, reg, { open: feedbackOpen, blocking: feedbackBlocking });
+  el.classList.toggle('open', feedbackOpen);
+  el.classList.remove('hidden');
+  bindMoveChips(el, reg.list);
+  el.querySelectorAll('[data-fb]').forEach(b => { b.onclick = () => onFeedback(b.dataset.fb); });
+}
+function hideFeedback() {
+  if (feedbackOpen) clearPlan();
+  feedback = null;
+  feedbackOpen = false;
+  clearTimeout(feedbackTimer);
+  $('feedback').classList.add('hidden');
+}
+function onFeedback(action) {
+  const r = feedback;
+  if (!r) return;
+  if (action === 'why') {
+    feedbackOpen = true;
+    renderFeedbackPanel();
+    showPlan([{ move: r.best, side: r.side, color: BEST }, { move: r.move, side: r.side, color: PLAYED }]);
+  } else if (action === 'go') {
+    const waiting = awaitingCoach;
+    awaitingCoach = false;
+    hideFeedback();
+    if (waiting) nextTurn();
+  } else if (action === 'undo') {
+    if (animating) return;
+    // le bot réfléchit déjà à sa réponse : elle est abandonnée
+    if (busy && botThinking) { gameToken++; botThinking = false; busy = false; }
+    awaitingCoach = false;
+    hideFeedback();
+    undo();
+  }
 }
 
 function describeMove(s, m) {
@@ -1681,6 +1793,8 @@ function describeMove(s, m) {
 function undo() {
   if (!history.length || reviewing || play.mode === 'bvb' || play.mode === 'online' || busy) return;
   gameToken++;
+  awaitingCoach = false;
+  hideFeedback();
   do { state = history.pop(); } while (history.length && !isHuman(state.turn));
   if (!isHuman(state.turn)) { history.push(state); state = history.pop(); }
   movesLog.length = history.length;
@@ -1928,14 +2042,18 @@ function updateControls() {
   $('btnCoach').classList.toggle('hidden', online);
   const live = viewPly === null ? state : liveState;
   const showPlay = paused || viewPly !== null;
-  $('btnPlay').innerHTML = showPlay ? '⏵<span> Lecture</span>' : '⏸<span> Pause</span>';
+  $('btnPlay').innerHTML = showPlay ? `${icon('play')}<span>Lecture</span>` : `${icon('pause')}<span>Pause</span>`;
   $('btnPlay').title = showPlay ? 'Revenir au présent et reprendre la partie' : 'Mettre en pause après ce coup';
   $('btnPlay').disabled = !live || live.over;
   $('btnFirst').disabled = $('btnPrev').disabled = !nav || k === 0;
   $('btnNext').disabled = viewPly !== null ? !nav : !paused || botThinking || busy || !state || state.over;
   $('btnNext').title = viewPly !== null ? 'Coup suivant (déjà joué)' : 'Faire jouer un coup au bot';
   $('btnLast').disabled = viewPly === null;
-  $('btnHint').disabled = !state || state.over || !isHuman(state.turn) || busy || hintPending || reviewing;
+  $('btnHint').disabled = !state || state.over || !isHuman(state.turn) || busy || hintPending || reviewing || hintLevel >= 3;
+  $('btnHint').querySelector('span').textContent = ['Conseil', 'La pièce', 'Le coup', 'Conseil'][hintLevel];
+  $('btnHint').title = ['Une piste pour trouver le bon coup', 'Montrer la pièce à jouer', 'Montrer le coup à jouer', 'Le coup conseillé est affiché'][hintLevel];
+  $('btnTrain').classList.toggle('hidden', !(play.mode === 'bot' || play.mode === 'pvp'));
+  $('btnTrain').classList.toggle('on', training);
   if (state) $('btnUndo').disabled = !history.length;
   layoutHud();
 }
@@ -1971,7 +2089,7 @@ function showViewed() {
   renderCoach();
   if (viewPly !== null) setStatus(`Revue — position après le coup ${k} sur ${n} · ◀ ▶ pour naviguer`, state.turn);
   else if (state.over) setStatus(`Partie terminée — ${state.reason}`, state.winner === 1 ? 1 : 0);
-  else setStatus(`En pause — à ${G.PLAYER_NAMES[state.turn]} de jouer · ⏵ pour reprendre`, state.turn);
+  else setStatus(`En pause — à ${G.PLAYER_NAMES[state.turn]} de jouer · Lecture pour reprendre`, state.turn);
   updateControls();
 }
 
@@ -2001,25 +2119,33 @@ $('btnPlay').onclick = () => {
   if (!paused && !botThinking && !busy && state && !state.over) nextTurn();
 };
 
+// conseil en trois temps : chaque appui en dévoile un peu plus (une piste, puis la pièce, puis le coup)
 async function hint() {
   if (!state || state.over || !isHuman(state.turn) || busy || hintPending || reviewing) return;
+  if (hintData && hintLevel > 0) return revealHint(Math.min(3, hintLevel + 1));
   hintPending = true;
-  clearHint();
   updateControls();
   const wasOpen = coachOn;
   setCoach(true);
   coachForHint = !wasOpen;
   $('coach').innerHTML = '<div class="coach-wait"><span class="spinner"></span> Le bot analyse la position…</div>';
   const token = gameToken, before = state;
-  const { move, info } = await askBot(before, play.level === 'expert' ? 'expert' : 'hard', true);
+  const { move, info } = await analysisFor(before);
   hintPending = false;
   updateControls();
   if (token !== gameToken || state !== before) { renderCoach(); return; }
   if (!move || !info) { $('coach').innerHTML = '<p class="muted">Analyse indisponible.</p>'; return; }
-  coachData = explain(before, move, info);
-  coachLabel = 'Conseil du bot';
-  showHint(move);
+  hintData = explain(before, move, info, { ctx: coachCtx(before.turn) });
+  revealHint(1);
+}
+function revealHint(level) {
+  if (!hintData || state.over || !isHuman(state.turn)) return;
+  hintLevel = level;
+  if (level === 2) select(hintData.move.pi);
+  if (level === 3) showHint(hintData.move);
+  if (!coachOn) { setCoach(true); coachForHint = true; }
   renderCoach();
+  updateControls();
 }
 $('btnHint').onclick = hint;
 
@@ -2039,44 +2165,50 @@ $('btnCoach').onclick = () => setCoach(!coachOn);
 function renderCoach() {
   const el = $('coach');
   if (!coachOn) return;
-  if (!coachData) {
+  const reg = moveRegistry();
+  if (hintData && hintLevel > 0) {
+    el.innerHTML = renderHint(hintData, hintLevel, reg, { history: evalHistory });
+    el.querySelectorAll('[data-hint]').forEach(b => { b.onclick = () => revealHint(+b.dataset.hint); });
+    const playBtn = $('coachPlayHint');
+    if (playBtn) playBtn.onclick = () => { if (hintMove && !busy && isHuman(state.turn)) performMove(hintMove); };
+  } else if (!coachData) {
     el.innerHTML = `<div class="coach-head"><span class="tag">Analyse</span></div>
-      <p class="muted">${play.mode === 'bvb' ? 'L’explication de chaque coup du bot s’affichera ici.' : 'Ici s’affiche le raisonnement du bot après chacun de ses coups. Au tour du joueur, « Conseil » montre le coup que le bot jouerait dans la position.'}</p>`;
-    return;
-  }
-  // conseil : le coup en tête, le détail replié pour que le panneau ne masque pas le plateau
-  const hint = coachLabel === 'Conseil du bot' && hintMove ? hintSentence(state, hintMove) : null;
-  el.innerHTML = renderAnalysis(coachData, { label: coachLabel, history: evalHistory, hint, collapsed: !!hint || compactMQ.matches });
+      <p class="muted">${play.mode === 'bvb' ? 'L’idée de chaque coup du bot s’affichera ici.' : 'Ici s’affiche l’idée de chaque coup du bot. À votre tour, « Conseil » donne une piste, puis la pièce à jouer, puis le coup.'}</p>`;
+  } else el.innerHTML = renderAnalysis(coachData, reg, { label: coachLabel, history: evalHistory, compact: compactMQ.matches });
   updateMenuShift();
-  if (hint) {
-    $('coachPlayHint').onclick = () => { if (hintMove && !busy && isHuman(state.turn)) performMove(hintMove); };
-  }
+  bindMoveChips(el, reg.list);
   const btn = $('coachPlanBtn');
   if (btn) {
     btn.classList.toggle('on', planShown);
     btn.onclick = () => { if (planShown) clearPlan(); else showPlan(planItems()); btn.classList.toggle('on', planShown); };
   }
-  // survol d'une ligne : le coup correspondant est tracé sur le plateau
-  el.querySelectorAll('[data-plan]').forEach(li => {
-    const m = coachData.plan[+li.dataset.plan].move;
-    li.onmouseenter = () => showPath(m);
-    li.onmouseleave = () => showPath(null);
-  });
-  el.querySelectorAll('[data-alt]').forEach(li => {
-    const m = coachData.alts[+li.dataset.alt].move;
-    li.onmouseenter = () => showPath(m);
-    li.onmouseleave = () => showPath(null);
+}
+
+// coups cités dans un panneau : tracés sur le plateau au survol ; un toucher (ou un clic) garde le tracé affiché
+let pinnedMove = null;
+function bindMoveChips(el, list) {
+  el.querySelectorAll('[data-mv]').forEach(c => {
+    const m = list[+c.dataset.mv];
+    c.onmouseenter = () => showPath(m);
+    c.onmouseleave = () => showPath(pinnedMove || hintMove);
+    c.onclick = () => {
+      pinnedMove = pinnedMove === m ? null : m;
+      document.querySelectorAll('.mv-chip.pinned').forEach(x => x.classList.remove('pinned'));
+      if (pinnedMove) c.classList.add('pinned');
+      showPath(pinnedMove || hintMove);
+    };
   });
 }
 
 // coups à tracer : pour un conseil, le coup suggéré puis la suite ; sinon la suite du coup joué
-const planItems = () => (coachLabel === 'Conseil du bot' ? [{ move: coachData.move, side: coachData.side }, ...coachData.plan.slice(0, 3)] : coachData.plan.slice(0, 4));
+const planItems = () => (hintData && hintLevel ? [{ move: hintData.move, side: hintData.side }, ...hintData.plan.slice(0, 3)] : coachData.plan.slice(0, 4));
 
 // suite prévue tracée sur le plateau : un tube par coup, de plus en plus transparent
 const planGroup = new THREE.Group();
 scene.add(planGroup);
 function clearPlan() {
-  for (const o of planGroup.children) { o.geometry.dispose(); o.material.dispose(); }
+  // les sprites partagent une géométrie commune à Three.js : on ne libère que leur matériau
+  for (const o of planGroup.children) { if (!o.isSprite) o.geometry.dispose(); o.material.dispose(); }
   planGroup.clear();
   planShown = false;
   $('coachPlanBtn')?.classList.remove('on');
@@ -2095,6 +2227,14 @@ function showPlan(items) {
     ring.rotation.x = -Math.PI / 2;
     ring.position.set(x, (m.kind === 'exit' ? 0.1 : topY(state.h[m.to])) + 0.03, z);
     planGroup.add(ring);
+    // suite de plusieurs coups : un numéro flotte au-dessus de chaque arrivée, à la place de coordonnées
+    if (items.length > 1 && !color) {
+      const badge = new THREE.Sprite(new THREE.SpriteMaterial({ map: numberTexture(i + 1), transparent: true, depthTest: false, opacity: Math.max(0.6, mat.opacity) }));
+      badge.scale.setScalar(0.36);
+      badge.position.set(x, ring.position.y + 0.45, z);
+      badge.renderOrder = 10;
+      planGroup.add(badge);
+    }
   });
   planShown = items.length > 0;
 }
@@ -2111,6 +2251,9 @@ function showHint(m) {
 }
 function clearHint() {
   hintMove = null;
+  hintLevel = 0;
+  hintData = null;
+  pinnedMove = null;
   hintMark.visible = false;
   showPath(null);
 }
@@ -2198,12 +2341,13 @@ canvas.addEventListener('pointerup', e => {
   downAt = null;
   if (toolsWereOpen || !canPlay()) return;
   const h = pick(e);
-  if (h.move && selected >= 0 && !previewing) return void performMove(h.move);
+  if (h.move && selected >= 0 && !previewing) return void (puzzle ? tryPuzzle(h.move) : performMove(h.move));
   // une pièce adverse (ou une des siennes hors de son tour) s'ouvre en aperçu : ses coups sont montrés, pas jouables
   if (h.pi >= 0) return void (h.pi === selected ? clearSelection() : select(h.pi, state.pieces[h.pi].o !== state.turn));
   clearSelection();
 });
-const canPlay = () => !!state && !busy && !reviewing && !state.over && isHuman(state.turn);
+// pendant l'analyse de partie, on ne joue que pour chercher un meilleur coup (exercice)
+const canPlay = () => !!state && !busy && (!reviewing || (!!puzzle && !puzzle.solved && !puzzle.showSolution)) && !state.over && isHuman(state.turn);
 let pendingMove = null;
 canvas.addEventListener('pointermove', e => {
   if (isTouch(e)) {
@@ -2407,22 +2551,36 @@ function showGameOver() {
   const caps = movesLog.filter(x => x.move.kind === 'attack').length;
   $('overStats').textContent = `${state.ply} coups · ${caps} capture${caps > 1 ? 's' : ''} · ${worldLabel}`;
   $('btnReview').classList.toggle('hidden', !movesLog.some(x => x.human));
+  // entraînement : les coups déjà jugés donnent tout de suite le nombre de fautes à revoir
+  const live = movesLog.filter(x => x.human).map(x => liveReviews.get(x.before));
+  const faults = live.filter(r => r && isError(r)).length;
+  $('btnReview').innerHTML = `<span aria-hidden="true">✦</span> Analyser la partie${faults ? ` · ${faults} faute${faults > 1 ? 's' : ''} à revoir` : ''}`;
+  if (live.length && live.every(Boolean)) recordProgress(live, state);
   updateRematchButton();
   $('over').classList.remove('hidden');
   setStatus(title, w === 2 ? 0 : w);
 }
 
 // ================================================================ analyse de fin de partie
+// Les coups déjà jugés pendant la partie (entraînement) sont repris tels quels, les autres analysés un à un.
+// Les plus grosses fautes deviennent des moments clés : on y voit ce qui s'est passé, ce qu'il fallait jouer,
+// la suite rejouée sur le plateau, et l'on peut chercher soi-même un meilleur coup.
 let reviewing = false, reviewToken = 0, reviewItems = [], reviewSel = -1, finalState = null, reviewError = false;
+// puzzle : exercice en cours (voir renderPuzzle dans review.js) ; lineToken : suite rejouée sur le plateau
+let puzzle = null, lineToken = 0, reviewListOpen = false;
+const BEST = 0x7fe39a, PLAYED = 0xf0955a;
+const reviewSides = () => (hasSide() ? [play.side] : [0, 1]);
 
 async function startReview() {
   if (reviewing) return;
   const token = ++reviewToken;
   reviewing = true;
   finalState = state;
+  hideFeedback();
   const humans = movesLog.filter(x => x.human);
-  reviewItems = humans.map(() => null);
+  reviewItems = humans.map(x => { const r = liveReviews.get(x.before); return r && sameMove(r.move, x.move) ? r : null; });
   reviewSel = -1;
+  puzzle = null;
   reviewError = false;
   $('over').classList.add('hidden');
   setCoach(false);
@@ -2432,53 +2590,191 @@ async function startReview() {
   renderReview();
   const think = s => askBot(s, 'review', true);
   for (let k = 0; k < humans.length; k++) {
-    const r = await reviewMove(think, humans[k].before, humans[k].move);
+    if (reviewItems[k]) continue;
+    const r = await reviewMove(think, humans[k].before, humans[k].move, coachCtx());
     if (token !== reviewToken) return;
     if (!r) { reviewError = true; renderReview(); return; } // moteur WebAssembly indisponible : pas d'analyse
     reviewItems[k] = r;
     renderReview();
   }
+  recordProgress(reviewItems, finalState);
+  renderReview();
+}
+
+// fautes dans l'ordre de la partie, pour passer de l'une à l'autre
+function reviewNav() {
+  const errs = reviewItems.map((r, i) => (r && reviewSides().includes(r.side) && isError(r) ? i : -1)).filter(i => i >= 0);
+  return { prev: [...errs].reverse().find(i => i < reviewSel) ?? -1, next: errs.find(i => i > reviewSel) ?? -1 };
 }
 
 function renderReview() {
+  if (!reviewing) return;
   const done = reviewItems.filter(Boolean).length, total = reviewItems.length;
   const other = play.mode === 'online' ? 'Adversaire' : 'Bot';
   const names = hasSide() ? ['Rouge', 'Bleu'].map((n, o) => (o === play.side ? `${play.mode === 'online' ? 'Vous' : 'Joueur'} (${n})` : `${other} (${n})`)) : ['Rouge', 'Bleu'];
-  const sides = hasSide() ? [play.side] : [0, 1];
+  const sides = reviewSides();
+  const keys = keyMoments(reviewItems, sides);
   const r = reviewSel >= 0 ? reviewItems[reviewSel] : null;
-  $('review').innerHTML = `
+  const reg = moveRegistry();
+  const hints = movesLog.filter(x => x.human && x.hint).length;
+  const finished = done === total && !reviewError;
+  let detail = '';
+  if (puzzle) detail = renderPuzzle(puzzle, reg);
+  else if (r) { const nav = reviewNav(); detail = renderDetail(r, reg, { prev: nav.prev >= 0, next: nav.next >= 0 }); }
+  else if (keys.length) detail = '<p class="muted">Choisissez un moment clé : le plateau revient à la position, avec le coup joué <span class="key played"></span> et le meilleur coup <span class="key best"></span>.</p>';
+  const rv = $('review');
+  rv.innerHTML = `
     <div class="rv-head"><b>Analyse de la partie</b><button class="mini" id="rvClose">Fermer</button></div>
     ${reviewError ? '<p class="muted">Analyse indisponible : le moteur du bot n’a pas pu être chargé.</p>' : done < total ? `<div class="rv-progress"><i style="width:${(done / total) * 100}%"></i><span>Analyse des coups ${done} / ${total}…</span></div>` : ''}
-    ${renderSummary(reviewItems, sides, names)}
-    ${renderGraph(reviewItems, finalState.ply)}
-    ${r ? renderDetail(r) : '<p class="muted">Un clic sur un coup affiche la position, le coup joué <span class="key played"></span> et le meilleur coup <span class="key best"></span>.</p>'}
+    ${renderSummary(reviewItems, sides, names, hints)}
+    ${renderGraph(reviewItems, finalState.ply, r ? r.ply : -1)}
+    ${renderKeyMoments(reviewItems, keys, reviewSel)}
+    ${detail}
+    ${finished ? renderLessons(reviewItems, sides) + progressLine() : ''}
     ${renderList(reviewItems, reviewSel)}`;
   $('rvClose').onclick = () => closeReview(true);
-  $('review').querySelectorAll('.rv-list li[data-i]').forEach(li => { li.onclick = () => selectReview(+li.dataset.i); });
-  $('review').querySelectorAll('.rv-graph circle[data-ply]').forEach(c => {
-    c.onclick = () => selectReview(reviewItems.findIndex(x => x && x.ply === +c.dataset.ply));
+  rv.querySelectorAll('.rv-list li[data-i], .rv-keys li[data-i]').forEach(li => { li.onclick = () => selectReview(+li.dataset.i); });
+  rv.querySelectorAll('.rv-graph g[data-ply]').forEach(g => {
+    g.onclick = () => selectReview(reviewItems.findIndex(x => x && x.ply === +g.dataset.ply));
   });
+  rv.querySelectorAll('[data-nav]').forEach(btn => {
+    btn.onclick = () => { const nav = reviewNav(), i = +btn.dataset.nav < 0 ? nav.prev : nav.next; if (i >= 0) selectReview(i); };
+  });
+  rv.querySelectorAll('[data-line]').forEach(btn => { btn.onclick = () => playLine(r, btn.dataset.line); });
+  rv.querySelector('[data-puzzle]')?.addEventListener('click', () => startPuzzle(r));
+  rv.querySelectorAll('[data-pz]').forEach(btn => { btn.onclick = () => puzzleAction(btn.dataset.pz); });
+  const all = rv.querySelector('.rv-all');
+  if (all) { all.open = reviewListOpen; all.ontoggle = () => { reviewListOpen = all.open; }; }
+  bindMoveChips(rv, reg.list);
 }
 
 function selectReview(i) {
   const r = reviewItems[i];
   if (!r) return;
+  puzzle = null;
   reviewSel = i;
+  showReviewPosition(r);
+  renderReview();
+  $('review').querySelector('.rv-detail')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+// plateau à la position d'avant le coup, avec le meilleur coup (vert) et le coup joué (orange)
+function showReviewPosition(r) {
+  lineToken++;
+  busy = true;
   state = r.before;
+  clearSelection();
   syncPieces(state);
   updateHUD();
   clearPlan();
-  showPlan(r.isBest ? [{ move: r.move, side: r.side, color: 0x7fe39a }] : [{ move: r.best, side: r.side, color: 0x7fe39a }, { move: r.move, side: r.side, color: 0xf0955a }]);
+  showPlan(r.isBest ? [{ move: r.move, side: r.side, color: BEST }] : [{ move: r.best, side: r.side, color: BEST }, { move: r.move, side: r.side, color: PLAYED }]);
   setStatus(`Position avant le coup ${r.ply + 1} — à ${G.PLAYER_NAMES[r.side]} de jouer`, r.side);
   updateControls();
+}
+
+// rejoue sur le plateau le coup (joué ou meilleur) puis la suite que le bot prévoit
+async function playLine(r, which) {
+  if (!r) return;
+  showReviewPosition(r);
+  clearPlan();
+  const token = lineToken;
+  const expl = which === 'best' ? r.bestExpl : r.playedExpl;
+  const moves = [which === 'best' ? r.best : r.move, ...expl.plan.slice(0, 5).map(p => p.move)];
+  let s = r.before;
+  for (const m of moves) {
+    if (s.over) break;
+    setStatus(moveText(s, m, r.ctx), s.turn);
+    await animateMove(m, s);
+    if (token !== lineToken) return void syncPieces(state);
+    s = G.applyMove(s, m);
+    state = s;
+    syncPieces(s);
+    updateHUD();
+    await wait(420);
+    if (token !== lineToken) return;
+  }
+  setStatus(`${which === 'best' ? 'Suite du meilleur coup' : 'Suite du coup joué'} : fin de la variante prévue`, r.side);
+}
+
+// ---------------------------------------------------------------- exercice : retrouver un meilleur coup
+function startPuzzle(r) {
+  showReviewPosition(r);
+  clearPlan();
+  busy = false;
+  puzzle = { r, tries: 0, msg: '', tone: 'info', solved: false, hint: false, showSolution: false, busy: false };
+  setStatus(`À ${r.ctx.me === r.side ? 'vous' : G.PLAYER_NAMES[r.side]} : trouvez un meilleur coup`, r.side);
   renderReview();
-  $('review').querySelector('.rv-list li.sel')?.scrollIntoView({ block: 'nearest' });
+}
+
+async function tryPuzzle(m) {
+  const pz = puzzle;
+  if (!pz || pz.busy || pz.solved) return;
+  const r = pz.r, token = lineToken;
+  clearSelection();
+  if (sameMove(m, r.move)) {
+    Object.assign(pz, { msg: 'C’est le coup joué dans la partie : cherchez autre chose.', tone: 'ko' });
+    return renderReview();
+  }
+  pz.busy = busy = true;
+  renderReview();
+  const anim = animateMove(m, r.before);
+  const after = G.applyMove(r.before, m);
+  let score;
+  if (sameMove(m, r.best)) score = r.bestScore;
+  else if (after.over) score = after.winner === 2 ? 0 : after.winner === r.side ? WIN : -WIN;
+  else {
+    // le coup a été examiné par la même recherche que le meilleur : son score y est comparable
+    const alt = r.bestInfo.alts.find(x => sameMove(x.move, m));
+    if (alt) score = alt.score;
+    else { const res = await askBot(after, 'review', true); const v = res.info ? res.info.score : 0; score = after.turn === r.side ? v : -v; }
+  }
+  await anim;
+  if (puzzle !== pz || token !== lineToken) return void syncPieces(state);
+  const p = winProb(score), loss = Math.max(0, (r.pBest - p) * 100);
+  const yours = r.ctx.me === r.side ? 'vos chances' : `les chances de ${G.PLAYER_NAMES[r.side]}`;
+  pz.busy = false;
+  pz.tries++;
+  if (loss < 6) {
+    pz.solved = true;
+    pz.tone = 'ok';
+    pz.msg = sameMove(m, r.best) ? '<b>Bravo !</b> C’est exactement le coup du bot.'
+      : `<b>Bien joué !</b> Ce coup vaut presque le meilleur : ${yours} passent à ${pct(p)}, contre ${pct(r.pPlayed)} avec le coup de la partie.`;
+    renderReview();
+    return;
+  }
+  const e = explain(r.before, m, { ...r.bestInfo, score, pv: [{ move: m, before: r.before }], alts: [] }, { judged: true, ctx: r.ctx });
+  const bad = e.reasons.find(x => x.tone === 'bad' && x.weight >= 30);
+  pz.tone = 'ko';
+  pz.msg = `<b>Pas encore.</b> Avec ce coup, ${yours} seraient de ${pct(p)} au lieu de ${pct(r.pBest)}.${bad ? ` ⚠️ ${esc(bad.idea)}.` : ''} Réessayez.`;
+  renderReview();
+  await wait(900);
+  if (puzzle !== pz) return;
+  syncPieces(r.before); // la pièce revient à sa place pour un nouvel essai
+  busy = false;
+}
+
+function puzzleAction(action) {
+  const pz = puzzle;
+  if (!pz) return;
+  if (action === 'hint') { pz.hint = true; renderReview(); }
+  else if (action === 'solution') {
+    lineToken++;
+    pz.showSolution = true;
+    pz.busy = false;
+    busy = true;
+    clearSelection();
+    syncPieces(pz.r.before);
+    showPlan([{ move: pz.r.best, side: pz.r.side, color: BEST }]);
+    renderReview();
+  } else if (action === 'back') selectReview(reviewItems.indexOf(pz.r));
 }
 
 function closeReview(showOver) {
   if (!reviewing) return;
   reviewToken++;
+  lineToken++;
   reviewing = false;
+  puzzle = null;
   $('review').classList.add('hidden');
   $('legend').classList.remove('hidden');
   updateMenuShift();
@@ -2487,6 +2783,58 @@ function closeReview(showOver) {
   if (showOver) showGameOver();
 }
 $('btnReview').onclick = startReview;
+
+// ---------------------------------------------------------------- progression d'une partie à l'autre
+// Chaque partie analysée (contre le bot ou en ligne) laisse une ligne : coups solides, précision, thèmes des fautes.
+const PROGRESS_KEY = 'traversal.progress';
+function loadProgress() {
+  try { const d = JSON.parse(localStorage.getItem(PROGRESS_KEY)); return Array.isArray(d) ? d : []; } catch { return []; }
+}
+function recordProgress(items, final) {
+  if (!hasSide() || !final) return;
+  const s = summary(items, play.side);
+  if (!s) return;
+  const id = `${worldSeed}:${final.ply}:${play.mode}:${play.side}`;
+  const list = loadProgress().filter(e => e.id !== id);
+  list.push({ id, t: Date.now(), n: s.n, solid: s.solid, acc: Math.round(s.accuracy), themes: s.themes, level: play.level });
+  try { localStorage.setItem(PROGRESS_KEY, JSON.stringify(list.slice(-40))); } catch {}
+  showMenuProgress();
+}
+// moyenne des 5 dernières parties, comparée aux 5 d'avant ; thème le plus fréquent dans leurs fautes
+function progressStats() {
+  const list = loadProgress();
+  if (!list.length) return null;
+  const last = list.slice(-5), prev = list.slice(-10, -5);
+  const mean = l => Math.round(l.reduce((a, e) => a + e.acc, 0) / l.length);
+  const themes = {};
+  for (const e of last) for (const [t, k] of Object.entries(e.themes || {})) if (TOPICS[t]) themes[t] = (themes[t] || 0) + k;
+  const top = Object.entries(themes).sort((a, b) => b[1] - a[1])[0];
+  return { games: list.length, n: last.length, acc: mean(last), prev: prev.length ? mean(prev) : null, theme: top ? top[0] : null };
+}
+function progressLine() {
+  const p = progressStats();
+  if (!p || p.games < 2) return '';
+  const trend = p.prev === null ? '' : p.acc > p.prev ? ` <b class="up">↑ ${p.acc - p.prev}</b>` : p.acc < p.prev ? ` <b class="down">↓ ${p.prev - p.acc}</b>` : ' <span class="muted">(stable)</span>';
+  return `<p class="rv-trend">📈 Précision moyenne sur vos ${p.n} dernières parties analysées : <b>${p.acc} %</b>${trend}${p.theme ? `<br>À travailler en priorité : ${TOPICS[p.theme].icon} ${TOPICS[p.theme].label}` : ''}</p>`;
+}
+function showMenuProgress() {
+  const p = progressStats(), el = $('menuProgress');
+  el.classList.toggle('hidden', !p);
+  if (p) el.innerHTML = `📈 ${p.games} partie${p.games > 1 ? 's' : ''} analysée${p.games > 1 ? 's' : ''} · précision ${p.acc} %${p.theme ? ` · à travailler : ${TOPICS[p.theme].label}` : ''}`;
+}
+showMenuProgress();
+
+// ---------------------------------------------------------------- mode Entraînement
+$('btnTrain').onclick = () => {
+  training = !training;
+  try { localStorage.setItem('traversal.training', training ? '1' : '0'); } catch {}
+  toast(training ? 'Entraînement : chacun de vos coups est jugé aussitôt, et une faute peut être reprise.' : 'Entraînement désactivé.');
+  if (!training) {
+    hideFeedback();
+    if (awaitingCoach) { awaitingCoach = false; nextTurn(); }
+  } else if (state && !state.over && isHuman(state.turn) && !busy) analysisFor(state);
+  updateControls();
+};
 
 // ================================================================ menus
 const terrainSeg = $('terrainSeg');

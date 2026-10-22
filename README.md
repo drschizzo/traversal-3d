@@ -50,14 +50,20 @@ Les règles complètes et officielles sont sur [traversalgame.com/rules](https:/
 - **Parties par lien** : le bouton 🔗 *Lien* copie une adresse qui contient toute la partie (monde et coups joués,
   ~550 caractères pour 200 coups). L'ouvrir affiche la position, prête à continuer : pratique pour jouer par
   correspondance, partager une position ou reprendre une partie sur un autre appareil.
-- **Apprendre du bot** : le panneau *Analyse* explique chaque coup du bot (chances de gain estimées, course des
-  Sentinelles, captures, pièces mises à l'abri ou laissées en prise, menaces créées), montre la suite qu'il prévoit
-  (traçable sur le plateau), les coups qu'il a écartés et ce qu'ils auraient coûté, et la courbe d'évaluation de la partie.
-  Au tour d'un joueur humain, *Conseil* montre le coup que le bot jouerait dans la position, et pourquoi.
+- **Apprendre du bot** : le panneau *Analyse* donne en tête l'idée de chaque coup du bot (gagner un tour dans la
+  course des Sentinelles, capturer, mettre une pièce à l'abri…), puis, repliés, les autres raisons, les chances de gain,
+  la suite qu'il prévoit (numérotée sur le plateau), les coups écartés et la courbe d'évaluation. Les pièces sont
+  nommées sans coordonnées (« votre Sentinelle de gauche ») et chaque coup cité se trace sur le plateau au survol ou au toucher.
+- **Conseil en trois temps** : au tour d'un joueur humain, *Conseil* donne d'abord une piste, puis la pièce à jouer,
+  puis seulement le coup et son explication.
+- **Entraînement** : avec le bouton 🎓, chaque coup du joueur est jugé aussitôt. Après une erreur ou une gaffe, le bot
+  attend : on peut voir pourquoi, reprendre le coup ou continuer.
 - **Analyse de partie** : en fin de partie (contre le bot ou à deux), chaque coup humain est noté
   (meilleur coup, excellent, bon, imprécision, erreur, gaffe) en le comparant au meilleur coup du moteur.
-  Le bilan donne une précision par joueur et la courbe des chances. Un clic sur un coup ramène le plateau à
-  cette position, trace le coup joué et le meilleur coup, et explique la différence.
+  Le bilan compte les coups solides et met en avant les moments clés : pour chacun, ce qui s'est passé (la réponse
+  adverse), ce qu'il fallait jouer, la suite rejouée sur le plateau, et un exercice pour retrouver soi-même un
+  meilleur coup. Les fautes sont rangées par thème, avec le principe du [guide de stratégie](docs/guide-strategie.md)
+  à travailler ; la progression d'une partie à l'autre s'affiche dans le menu.
 - **Un bot rapide** : c'est un moteur écrit en Rust et compilé en WebAssembly (`engine/`), qui tourne dans un Web Worker :
   negamax alpha-bêta avec table de transpositions, ~1 million de positions/s dans le navigateur,
   une dizaine de coups d'avance en niveau difficile.
@@ -207,8 +213,8 @@ python3 analysis/analyze.py parties.jsonl                                       
 | `main.js` | Rendu Three.js : plateau, pièces, décor, effets, post-traitement, interactions |
 | `game.js` | Moteur de règles (pur, sans DOM) et générateur de terrain |
 | `ai-worker.js` | Web Worker du bot : charge `engine/traversal.wasm`, renvoie le coup et son analyse |
-| `coach.js` | Explication des coups du bot à partir de l'analyse du moteur (panneau *Analyse* et *Conseil*) |
-| `review.js` | Analyse de fin de partie : notation des coups humains, bilan, détail des fautes |
+| `coach.js` | Explication des coups à partir de l'analyse du moteur : idée, raisons par thème, pièces nommées sans coordonnées (*Analyse*, *Conseil*) |
+| `review.js` | Jugement des coups humains (entraînement, analyse de partie) : notes, réponse adverse, moments clés, exercices, bilan |
 | `engine/` | Moteur du bot en Rust (règles, recherche, évaluation), banc d'essai et analyses statistiques |
 | `match.js` | Sérialisation compacte d'une partie (monde et coups) pour les liens, et relecture des coups |
 | `net.js` | Client des parties en ligne : création de salon, WebSocket, reconnexion |

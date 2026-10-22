@@ -49,7 +49,10 @@
   #hud[data-tb="icons"] #toolbar button, #hud[data-tb="bottom"] #toolbar button { font-size: 16px; padding: 7px 11px; }
   #hud[data-tb="icons"] #btnPlay span, #hud[data-tb="bottom"] #btnPlay span { font-size: 12px; }
   #hud[data-tb="bottom"] #toolbar { top: auto; bottom: 70px; right: 50%; transform: translateX(50%); }
-  #toolbar button { background: transparent; border: 0; padding: 8px 11px; border-radius: 10px; font-size: 13px; font-weight: 500; white-space: nowrap; }
+  #toolbar button { display: inline-flex; align-items: center; gap: 7px; background: transparent; border: 0; padding: 8px 11px; border-radius: 10px; font-size: 13px; font-weight: 500; white-space: nowrap; }
+  svg.ic { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  #hud[data-tb="icons"] #toolbar svg.ic, #hud[data-tb="bottom"] #toolbar svg.ic { width: 19px; height: 19px; }
+  #btnTools svg.ic { width: 22px; height: 22px; }
   #toolbar button:hover { background: var(--glass-2); }
   #toolbar button.on { background: rgba(242,196,109,.18); color: var(--gold); }
   #toolbar button:disabled { opacity: .35; cursor: default; }
@@ -186,8 +189,9 @@
   /* conseil : le coup à jouer en tête, en clair, avec de quoi le jouer d'un geste ; le détail se replie */
   .hint-box { border: 1px solid rgba(255,211,107,.55); background: rgba(255,211,107,.08); border-radius: 12px; padding: 10px 12px; margin: 6px 0 12px; }
   .hint-box .what { font-family: var(--display); font-weight: 600; font-size: 15px; line-height: 1.35; }
-  .hint-cta { display: flex; gap: 8px; margin-top: 10px; }
-  .hint-cta button { flex: 1; margin: 0; padding: 8px 10px; font-size: 13px; }
+  /* les boutons passent à la ligne plutôt que de déborder d'un panneau étroit (téléphone) */
+  .hint-cta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .hint-cta button { flex: 1 1 auto; min-width: 0; margin: 0; padding: 8px 10px; font-size: 13px; }
   #coach details > summary { cursor: pointer; list-style: none; font-size: 12px; color: var(--muted); margin: 4px 0; }
   #coach details > summary::-webkit-details-marker { display: none; }
   #coach details > summary::before { content: '▸ '; }
@@ -246,6 +250,78 @@
   .rv-grade { font-family: var(--display); font-weight: 700; font-size: 15px; }
   .key { display: inline-block; width: 18px; height: 4px; border-radius: 2px; vertical-align: middle; }
   .key.best { background: #7fe39a; } .key.played { background: #f0955a; }
+  /* ---------- explications : l'idée d'un coup, les coups cités, le conseil en trois temps */
+  .idea { display: flex; gap: 10px; align-items: flex-start; padding: 9px 11px; margin: 8px 0; border-radius: 10px; background: rgba(127,227,154,.08); border: 1px solid rgba(127,227,154,.28); }
+  .idea.bad { background: rgba(240,149,90,.09); border-color: rgba(240,149,90,.35); }
+  .idea.info { background: var(--glass-2); border-color: var(--line); }
+  .idea .ic { font-size: 18px; line-height: 1.2; flex: none; }
+  .idea small { display: block; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .idea b { font-family: var(--display); font-weight: 600; font-size: 14px; line-height: 1.3; }
+  .reasons.key { margin-bottom: 4px; }
+  .reasons li.bad > span:last-child { color: #f7c3a2; }
+  .reasons li.info { color: var(--muted); }
+  .mv-chip { border-radius: 6px; cursor: pointer; transition: background .15s, box-shadow .15s; }
+  .mv-chip:hover, .mv-chip.pinned { background: var(--glass-2); box-shadow: inset 0 0 0 1px var(--line); }
+  .coach-move.mv-chip { padding: 2px 4px; margin: 0 -4px 4px; }
+  .hint-steps { display: flex; gap: 4px; margin: 4px 0 8px; }
+  .hint-steps span { flex: 1; font-size: 10.5px; text-align: center; padding: 3px 4px; border-radius: 6px; background: var(--glass-2); color: var(--muted); white-space: nowrap; }
+  .hint-steps span.on { background: rgba(255,211,107,.16); color: var(--gold); }
+  .hint-box p { margin: 6px 0 0; }
+  .hint-box .what.mv-chip { display: block; padding: 2px 4px; margin: 0 -4px; }
+  .mini.gold { background: rgba(242,196,109,.16); color: var(--gold); border-color: rgba(242,196,109,.5); }
+  .mini:disabled { opacity: .4; cursor: default; }
+  .principle { display: flex; gap: 9px; margin-top: 10px; padding: 8px 10px; border-radius: 10px; background: rgba(242,196,109,.07); border-left: 3px solid rgba(242,196,109,.6); }
+  .principle p { margin: 0 !important; font-size: 12px; color: #dfe2e9; }
+  .principle a, .lessons a { color: var(--gold); text-decoration: none; white-space: nowrap; }
+  .principle a:hover, .lessons a:hover { text-decoration: underline; }
+  /* ---------- verdict immédiat (entraînement) */
+  #feedback { position: fixed; left: 50%; bottom: 78px; transform: translateX(-50%); width: min(460px, calc(100vw - 32px)); padding: 10px 14px; font-size: 13px; line-height: 1.45; z-index: 7;
+    border-color: color-mix(in srgb, var(--c, #fff) 45%, transparent); max-height: calc(100vh - 200px); overflow: auto; animation: fbIn .25s ease-out; }
+  @keyframes fbIn { from { opacity: 0; translate: 0 8px; } }
+  #feedback h4 { font-family: var(--display); font-size: 12.5px; margin: 10px 0 4px; display: flex; align-items: center; gap: 7px; }
+  .fb-line { display: flex; gap: 10px; align-items: baseline; }
+  .fb-grade { font-family: var(--display); font-weight: 700; white-space: nowrap; }
+  .fb-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 8px; flex-wrap: wrap; }
+  .fb-actions .mini { font-size: 12px; padding: 5px 10px; }
+  .fb-more { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 2px; }
+  /* ---------- analyse de partie guidée */
+  .rv-name b small { font-size: 12px; color: var(--muted); font-weight: 500; }
+  .rv-bar { display: flex; gap: 2px; height: 6px; border-radius: 3px; overflow: hidden; margin-top: 5px; }
+  .chip.plain { background: var(--glass-2); color: var(--muted); }
+  .rv-graph .hit { fill: transparent; }
+  .rv-graph g { cursor: pointer; }
+  .rv-graph g.sel circle:not(.hit) { stroke: #fff; stroke-width: 2; }
+  .rv-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 10.5px; color: var(--muted); margin-bottom: 4px; }
+  .rv-keys { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+  .rv-keys li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; cursor: pointer; background: var(--glass-2); }
+  .rv-keys li:hover { background: rgba(255,255,255,.11); }
+  .rv-keys li.sel { background: rgba(242,196,109,.16); }
+  .rv-keys .gr { font-weight: 700; min-width: 18px; }
+  .rv-keys i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .rv-keys .n { color: var(--muted); white-space: nowrap; }
+  .rv-keys .th { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rv-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .rv-nav .mini { font-size: 13px; padding: 2px 10px; }
+  .rv-grade small { font-family: Inter, system-ui, sans-serif; font-weight: 500; font-size: 11.5px; color: var(--muted); }
+  .rv-odds b { font-family: var(--display); font-size: 14px; }
+  .rv-move { padding: 5px 8px; border-radius: 8px; border-left: 3px solid #f0955a; background: rgba(240,149,90,.07); }
+  .rv-move.best { border-left-color: #7fe39a; background: rgba(127,227,154,.07); }
+  .rv-why { font-weight: 600; color: #f7c3a2; }
+  .rv-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .rv-actions .mini { font-size: 11.5px; padding: 5px 9px; }
+  .pz-msg { padding: 7px 9px; border-radius: 8px; background: var(--glass-2); }
+  .pz-msg.info { display: flex; gap: 8px; align-items: center; }
+  .pz-msg.ok { background: rgba(127,227,154,.12); color: #c9f3d4; }
+  .pz-msg.ko { background: rgba(240,149,90,.12); color: #f7d2bb; }
+  .lessons { margin-top: 12px; }
+  .lesson { display: flex; gap: 9px; padding: 7px 0; border-top: 1px solid var(--line); }
+  .lesson .ic { font-size: 17px; flex: none; }
+  .lesson p { margin: 3px 0 0 !important; color: #cfd3dc; font-size: 12px; }
+  .rv-trend { font-size: 12px; padding: 8px 10px; border-radius: 10px; background: var(--glass-2); }
+  .rv-trend .up { color: #7fe39a; } .rv-trend .down { color: #f0955a; }
+  .rv-all { margin-top: 12px; }
+  .rv-all > summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  .menu-progress { color: var(--muted); letter-spacing: 0; text-align: right; }
   #toast { position: fixed; top: 108px; left: 50%; transform: translateX(-50%); padding: 9px 16px; font-size: 13px; transition: opacity .3s; }
 
   /* ---------- modales */
@@ -318,6 +394,7 @@
     #coach, #review { top: 58px; right: var(--gr); left: auto; width: 224px; max-height: calc(100vh - 66px); padding: 12px; }
     .hint-cta button { padding: 8px 6px; font-size: 12.5px; white-space: nowrap; }
     #toast { top: auto; bottom: 10px; max-width: calc(100vw - 380px); white-space: normal; text-align: center; }
+    #feedback { bottom: var(--gb); width: auto; left: calc(var(--gl) + 182px); right: calc(var(--gr) + 54px); transform: none; max-height: calc(100vh - 20px); font-size: 12px; }
     .modal.menu { padding: 8px; }
     .menu-panel { width: min(800px, calc(100vw - 16px)); max-height: calc(100vh - 16px); padding: 16px 20px 12px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 22px; align-items: start; }
     .brand { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
@@ -343,6 +420,7 @@
     #status { left: 8px; right: 60px; bottom: 12px; transform: none; max-width: none; min-height: 44px; white-space: normal; font-size: 12.5px; }
     #rotateHint { display: flex; position: fixed; top: 76px; left: 50%; transform: translateX(-50%); align-items: center; gap: 8px; padding: 7px 8px 7px 14px; font-size: 12.5px; white-space: nowrap; }
     #rotateHint.dismissed { display: none; }
+    #feedback { bottom: 66px; left: 8px; right: 8px; width: auto; transform: none; }
   }
 </style>
 <script type="importmap">
@@ -354,6 +432,26 @@
 </head>
 <body>
 <canvas id="scene"></canvas>
+<!-- icônes de la barre d'outils : un seul style, au trait, sur une grille de 24 -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-first" viewBox="0 0 24 24"><path d="M6 5v14M18 6.5 9.5 12l8.5 5.5z"/></symbol>
+  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M15 5.5 8.5 12l6.5 6.5"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13L18.5 12z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9 5.5v13M15 5.5v13"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M9 5.5 15.5 12 9 18.5"/></symbol>
+  <symbol id="i-last" viewBox="0 0 24 24"><path d="M18 5v14M6 6.5l8.5 5.5L6 17.5z"/></symbol>
+  <symbol id="i-hint" viewBox="0 0 24 24"><path d="M9.5 18h5M10.5 21h3M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></symbol>
+  <symbol id="i-train" viewBox="0 0 24 24"><path d="M2.5 9.5 12 5l9.5 4.5L12 14zM6.5 11.7v4.3c0 1.4 2.5 2.5 5.5 2.5s5.5-1.1 5.5-2.5v-4.3M21.5 9.5v5"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 13.5 4.5 9 9 4.5M4.5 9h10a5 5 0 0 1 0 10H11"/></symbol>
+  <symbol id="i-coach" viewBox="0 0 24 24"><path d="M4 4v16h16M7.5 15l3.5-4 3 2.5 5-6"/></symbol>
+  <symbol id="i-view" viewBox="0 0 24 24"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4v4h-4"/></symbol>
+  <symbol id="i-heights" viewBox="0 0 24 24"><path d="M3 19 9 9l4 6 2.5-3.5L21 19z"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3A4 4 0 0 0 13 5.3l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol>
+  <symbol id="i-rules" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.4a2.5 2.5 0 1 1 3.4 2.4c-.6.3-1 .8-1 1.5v.5M12 17v.1"/></symbol>
+  <symbol id="i-full" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><path d="M5.5 12h.01M12 12h.01M18.5 12h.01" stroke-width="3"/></symbol>
+</svg>
 
 <div id="hud" class="hidden">
   <div id="scoreboard" class="glass">
@@ -369,27 +467,29 @@
       <div class="pts" id="score1">0</div>
     </div>
   </div>
-  <button id="btnTools" class="glass" aria-label="Outils" aria-expanded="false" aria-controls="toolbar">⋯</button>
+  <button id="btnTools" class="glass" aria-label="Outils" aria-expanded="false" aria-controls="toolbar"><svg class="ic" aria-hidden="true"><use href="#i-more"/></svg></button>
   <div id="toolbar" class="glass">
-    <button id="btnFirst" class="hidden nav-ext" title="Début de la partie">⏮</button>
-    <button id="btnPrev" class="hidden" title="Coup précédent (←)">◀</button>
-    <button id="btnPlay" class="hidden" title="Mettre en pause après ce coup">⏸<span> Pause</span></button>
-    <button id="btnNext" class="hidden" title="Coup suivant (→)">▶</button>
-    <button id="btnLast" class="hidden nav-ext" title="Retour au présent">⏭</button>
-    <button id="btnHint" title="Coup que le bot jouerait dans cette position">💡<span> Conseil</span></button>
-    <button id="btnUndo" title="Annuler le dernier coup">↶<span> Annuler</span></button>
-    <button id="btnCoach" title="Afficher le raisonnement du bot">◎<span> Analyse</span></button>
-    <button id="btnView" title="Basculer la vue">⟲<span> Vue</span></button>
-    <button id="btnHeights" title="Afficher les hauteurs">▦<span> Hauteurs</span></button>
-    <button id="btnLink" title="Copier le lien de la partie : à envoyer à l’adversaire, ou pour la reprendre plus tard">🔗<span> Lien</span></button>
-    <button id="btnRules" title="Règles">?<span> Règles</span></button>
-    <button id="btnFull" title="Plein écran">⛶<span> Plein écran</span></button>
-    <button id="btnMenu" title="Menu">☰<span> Menu</span></button>
+    <button id="btnFirst" class="hidden nav-ext" title="Début de la partie" aria-label="Début de la partie"><svg class="ic" aria-hidden="true"><use href="#i-first"/></svg></button>
+    <button id="btnPrev" class="hidden" title="Coup précédent (←)" aria-label="Coup précédent"><svg class="ic" aria-hidden="true"><use href="#i-prev"/></svg></button>
+    <button id="btnPlay" class="hidden" title="Mettre en pause après ce coup"><svg class="ic" aria-hidden="true"><use href="#i-pause"/></svg><span>Pause</span></button>
+    <button id="btnNext" class="hidden" title="Coup suivant (→)" aria-label="Coup suivant"><svg class="ic" aria-hidden="true"><use href="#i-next"/></svg></button>
+    <button id="btnLast" class="hidden nav-ext" title="Retour au présent" aria-label="Retour au présent"><svg class="ic" aria-hidden="true"><use href="#i-last"/></svg></button>
+    <button id="btnHint" title="Une piste pour trouver le bon coup"><svg class="ic" aria-hidden="true"><use href="#i-hint"/></svg><span>Conseil</span></button>
+    <button id="btnTrain" title="Entraînement : chacun de vos coups est jugé aussitôt, et une faute peut être reprise"><svg class="ic" aria-hidden="true"><use href="#i-train"/></svg><span>Entraînement</span></button>
+    <button id="btnUndo" title="Annuler le dernier coup"><svg class="ic" aria-hidden="true"><use href="#i-undo"/></svg><span>Annuler</span></button>
+    <button id="btnCoach" title="Afficher le raisonnement du bot"><svg class="ic" aria-hidden="true"><use href="#i-coach"/></svg><span>Analyse</span></button>
+    <button id="btnView" title="Basculer la vue"><svg class="ic" aria-hidden="true"><use href="#i-view"/></svg><span>Vue</span></button>
+    <button id="btnHeights" title="Afficher les hauteurs"><svg class="ic" aria-hidden="true"><use href="#i-heights"/></svg><span>Hauteurs</span></button>
+    <button id="btnLink" title="Copier le lien de la partie : à envoyer à l’adversaire, ou pour la reprendre plus tard"><svg class="ic" aria-hidden="true"><use href="#i-link"/></svg><span>Lien</span></button>
+    <button id="btnRules" title="Règles"><svg class="ic" aria-hidden="true"><use href="#i-rules"/></svg><span>Règles</span></button>
+    <button id="btnFull" title="Plein écran"><svg class="ic" aria-hidden="true"><use href="#i-full"/></svg><span>Plein écran</span></button>
+    <button id="btnMenu" title="Menu"><svg class="ic" aria-hidden="true"><use href="#i-menu"/></svg><span>Menu</span></button>
   </div>
   <div id="status" class="glass"><span class="dot" id="statusDot"></span><span id="statusText"></span></div>
   <div id="card" class="glass hidden-soft"></div>
   <aside id="coach" class="glass hidden" aria-live="polite"></aside>
   <aside id="review" class="glass hidden"></aside>
+  <div id="feedback" class="glass hidden" aria-live="polite"></div>
   <div id="legend" class="glass">
     <div><i style="background:#9be7ff"></i>Déplacement</div>
     <div><i style="background:#ff5a5a"></i>Attaque possible</div>
@@ -452,6 +552,7 @@
     <button class="primary play" id="btnStart">Jouer <span aria-hidden="true">→</span></button>
     <footer class="menu-foot">
       <button class="link" id="btnMenuRules">Règles du jeu</button>
+      <span class="menu-progress hidden" id="menuProgress"></span>
     </footer>
     </div>
   </div>
@@ -520,6 +621,6 @@
   </div>
 </div>
 
-<script type="module" src="./main.js?v=69"></script>
+<script type="module" src="./main.js?v=71"></script>
 </body>
 </html>
