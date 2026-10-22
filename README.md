@@ -2,7 +2,7 @@
 
 Une adaptation en 3D (Three.js) du jeu de stratégie **Traversal**, jouable dans le navigateur à deux joueurs sur le même écran ou contre un bot.
 
-🎮 **Jouer directement en ligne : [drschizzo.github.io/traversal-3d](https://drschizzo.github.io/traversal-3d/)**
+🎮 **Jouer directement en ligne : [traversal-online.drschizzo.workers.dev](https://traversal-online.drschizzo.workers.dev/)**
 
 ![Une partie sur le thème Crépuscule : l'Explorateur sélectionné montre ses déplacements possibles et le chemin survolé](docs/gameplay.jpg)
 
@@ -98,10 +98,17 @@ N'importe quel serveur statique convient aussi, par exemple `python3 -m http.ser
 ### Serveur des parties en ligne
 
 Les salons tournent sur Cloudflare Workers avec un Durable Object par salon (`server/`), qui importe `game.js`
-tel quel et valide chaque coup. Rien n'est facturé quand personne ne joue (hibernation des WebSockets),
-et l'offre gratuite suffit largement. Le serveur est déployé sur
-**https://traversal-online.drschizzo.workers.dev**, qui sert aussi le jeu lui-même ; la version GitHub Pages
-y crée ses salons (constante `DEFAULT_SERVER` en tête de `net.js`).
+tel quel et valide chaque coup. Le même Worker sert aussi les fichiers du jeu : pages et salons sont alors sur
+la même origine. Rien n'est facturé quand personne ne joue (hibernation des WebSockets), et l'offre gratuite
+suffit largement.
+
+Le jeu choisit son serveur de salons tout seul (en tête de `net.js`) :
+
+| Page servie depuis | Salons utilisés |
+|---|---|
+| `localhost:8787` (`wrangler dev`) ou un domaine `*.workers.dev` | la même origine |
+| n'importe où ailleurs (GitHub Pages, `serve.py`, autre hébergeur) | la constante `DEFAULT_SERVER` |
+| n'importe où, avec `?server=https://…` dans l'adresse | le serveur indiqué |
 
 #### Tester en local
 
@@ -115,10 +122,10 @@ npx wrangler dev   # ou : npm run dev
 ```
 
 Le jeu complet et les salons sont alors servis sur **http://localhost:8787** : sur ce port, le jeu utilise les
-salons locaux. Servi autrement (par `serve.py` sur le port 8765, ou par GitHub Pages), il utilise le serveur
-déployé ; `?server=http://localhost:8787` dans l'adresse force le serveur local. Le Worker se recharge tout seul quand `server/worker.js` ou `game.js` change ;
-les fichiers du jeu sont relus à chaque requête. Les salons créés sont gardés dans `server/.wrangler/`
-(supprimer ce dossier repart de zéro).
+salons locaux. Servi autrement (par `serve.py` sur le port 8765, par exemple), il s'adresse au serveur de
+`DEFAULT_SERVER` ; `?server=http://localhost:8787` dans l'adresse force le serveur local. Le Worker se recharge
+tout seul quand `server/worker.js` ou `game.js` change ; les fichiers du jeu sont relus à chaque requête.
+Les salons créés sont gardés dans `server/.wrangler/` (supprimer ce dossier repart de zéro).
 
 Pour jouer contre soi-même :
 
@@ -133,30 +140,39 @@ rechargement, c'est la place du dernier onglet à s'être connecté qui est repr
 navigateur, garde les deux joueurs bien séparés. Depuis un téléphone du même réseau Wi-Fi, lancer
 `npx wrangler dev --ip 0.0.0.0` et ouvrir `http://<adresse-IP-de-l'ordinateur>:8787`.
 
-#### Mettre en ligne
+#### Héberger sa propre version
 
-Chaque push sur `main` déploie automatiquement le Worker (salons et jeu) grâce à **Workers Builds**,
-l'intégration Git de Cloudflare : GitHub Pages et le serveur restent ainsi toujours à la même version des règles.
-Réglages du Worker `traversal-online` (*Settings* → *Build*) :
+Pour mettre en ligne votre copie du dépôt avec les parties en ligne, il suffit d'un compte Cloudflare
+(l'offre gratuite convient) et d'un déploiement depuis `server/` :
+
+```bash
+cd server
+npx wrangler login    # une seule fois : ouvre le navigateur pour autoriser le compte
+npx wrangler deploy   # publie le Worker, les salons et le jeu
+```
+
+`wrangler deploy` affiche l'adresse obtenue, de la forme `https://<nom-du-worker>.<votre-sous-domaine>.workers.dev`.
+Le nom du Worker est le champ `name` de `server/wrangler.jsonc` (`traversal-online` ici) : changez-le si vous
+préférez une autre adresse, un même compte pouvant héberger plusieurs Workers. Le sous-domaine, lui, est celui
+de votre compte, choisi à sa création.
+
+Cette adresse sert à la fois le jeu et les salons : si vous ne publiez le jeu que là, il n'y a rien d'autre à
+régler. Si vous l'hébergez **aussi** ailleurs (GitHub Pages, un autre hébergeur statique), mettez l'adresse de
+votre Worker dans la constante `DEFAULT_SERVER`, en tête de `net.js` — sans quoi cette copie créerait ses salons
+sur le serveur d'origine.
+
+Le déploiement peut ensuite être automatisé à chaque push grâce à **Workers Builds**, l'intégration Git de
+Cloudflare (*Workers & Pages* → votre Worker → *Settings* → *Build*) :
 
 | Réglage | Valeur |
 |---|---|
-| Dépôt | `drschizzo/traversal-3d`, branche `main` |
+| Dépôt | votre dépôt, branche `main` |
 | Répertoire racine (*Root directory*) | `server` |
 | Commande de build | *(vide)* |
 | Commande de déploiement | `npx wrangler deploy` |
 
-Le déploiement manuel reste possible :
-
-```bash
-cd server
-npx wrangler login    # une seule fois
-npx wrangler deploy   # publie le Worker, les salons et le jeu sur https://traversal-online.<compte>.workers.dev
-```
-
-Si le Worker change d'adresse, mettre à jour `DEFAULT_SERVER` dans `net.js`.
-Posez aussi une alerte de dépense sur le compte Cloudflare, et surveillez la métrique de durée des
-Durable Objects les premières semaines.
+Enfin, posez une alerte de dépense sur le compte Cloudflare et surveillez la métrique de durée des
+Durable Objects les premières semaines : c'est elle qui décide de la facture si beaucoup de parties sont jouées.
 
 ### Recompiler le bot
 
