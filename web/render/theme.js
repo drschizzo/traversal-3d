@@ -2,7 +2,7 @@
 // plateau et pièces
 import * as THREE from 'three';
 import { THEMES } from './themes.js';
-import { renderer, scene, gfx, HORIZON, HAZE_BAND, hemi, sun, fill } from './context.js';
+import { renderer, scene, gfx, wake, HORIZON, HAZE_BAND, hemi, sun, fill } from './context.js';
 import { applyBackgroundTheme } from './background.js';
 import { applyPostTheme } from './postfx.js';
 import { applyAmbientTheme } from './ambient.js';
@@ -18,6 +18,9 @@ export function applyTheme(id) {
   const theme = gfx.theme = themeById(id);
   HORIZON.set(theme.horizon);
   scene.fog.color.copy(HORIZON);
+  // brume sur le plateau lui-même : repoussée au loin dans un thème épuré, où rien ne doit voiler la lecture
+  const fog = /** @type {THREE.Fog} */ (scene.fog);
+  [fog.near, fog.far] = theme.fog || [34, 120];
   const band = new THREE.Color(theme.band);
   HAZE_BAND.set(band.r, band.g, band.b);
   applyBackgroundTheme(theme);
@@ -29,5 +32,6 @@ export function applyTheme(id) {
   renderer.toneMappingExposure = theme.exposure ?? 1;
   applyPiecesTheme(bloom.threshold ?? 0.85);
   applyBoardTheme(theme);
+  wake(1200);   // le temps de compiler les shaders du nouveau décor et de redessiner, même en rendu à la demande
   return theme;
 }

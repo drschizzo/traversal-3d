@@ -72,7 +72,13 @@ Les règles complètes et officielles sont sur [traversalgame.com/rules](https:/
   et 2³² graines, soit plus de 25 milliards de mondes possibles. Chaque partie affiche son numéro de monde.
 - **Interface d'aide** : cases accessibles, chemin et coût au survol, détail du combat attaque contre défense,
   fiche de pièce, annulation, affichage des hauteurs, règles intégrées.
-- **8 thèmes visuels** : Crépuscule, Atelier (bois), Lagon, Braise, Givre, Ardoise, Marbre & or, Néon.
+- **10 thèmes visuels** : Crépuscule, Atelier (bois), Lagon, Braise, Givre, Ardoise, Marbre & or, Néon, Zen
+  et Minimal. Chacun a son décor : le plateau joué se dresse au milieu d'autres plateaux possibles, qui sont
+  selon le thème des vallées de brume, des ébauches sur l'établi, un récif, des coulées de lave, une banquise,
+  des croquis à la craie, les pièces d'une galerie, une ville en contrebas ou les pierres d'un jardin sec.
+  Le thème **Minimal** se passe de décor, de post-traitement et de particules : il privilégie la lisibilité
+  du relief et reste fluide sur un appareil léger. En qualité basse, tous les thèmes font de même : le décor
+  laisse la place au ciel et au sol du thème, nets et presque gratuits.
   Chacun a sa matière de case procédurale, son décor, ses particules et son post-traitement.
 - **Décor « espace des possibles »** : le plateau joué se dresse au milieu d'un pavage infini d'autres plateaux,
   rendu en raymarching volumétrique et brumeux, qui se transforme lentement.

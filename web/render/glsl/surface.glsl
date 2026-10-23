@@ -85,6 +85,20 @@ vec3 surfaceTint(vec3 base, inout float rough){
     }
   } else if (uSurface == 5) {                // sable : grain fin
     base *= 0.9 + 0.13 * sNoise(p * 34.0) + 0.05 * sNoise(p * 4.0);
+  } else if (uSurface == 11) {               // jardin sec : gravier ratissé en bas, mousse sur les pierres, terre tassée sur les flancs
+    if (vSurfN.y > 0.5) {
+      float low = 1.0 - smoothstep(1.0, 3.0, p.y / LEVEL_H - 1.0);        // les sillons ne sont tracés qu'au ras du sol
+      float rake = 0.5 + 0.5 * sin(length(p.xz) * 6.2 + sNoise(p * 0.7) * 0.8);
+      base *= mix(1.0, 0.92 + 0.15 * rake, low) * (0.95 + 0.09 * sNoise(p * 26.0));
+      base *= mix(0.93 + 0.14 * sNoise(p * vec3(16.0, 3.0, 16.0)), 1.0, low);   // touffes de mousse sur les sommets
+      rough = mix(rough, 1.0, 0.4);
+    } else {
+      base *= 0.88 + 0.16 * sNoise(vec3(p.x * 5.0, p.y * 22.0, p.z * 5.0));
+    }
+  } else if (uSurface == 12) {               // épure : aucun grain, un liseré plus sombre sur le pourtour des dessus
+    // les cases d'une même hauteur restent distinctes, sans rien ajouter qui gêne la lecture du relief
+    float line = step(0.97, vSurfN.y) * (1.0 - smoothstep(0.03, 0.055, cellEdge(p)));
+    base *= 1.0 - 0.22 * line;
   }
   return base;
 }

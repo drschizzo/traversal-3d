@@ -1,6 +1,7 @@
 // Boucle de rendu, réglage de la qualité et adaptation à la taille de la fenêtre.
 //
-// Rendu à la demande (niveaux sans « live ») : une image n'est recalculée que si quelque chose bouge
+// Rendu à la demande (niveaux sans « live », et quel que soit le niveau dans un thème épuré) : une image n'est
+// recalculée que si quelque chose bouge
 // (animation, caméra, pièce sélectionnée…) ou juste après une action ; sinon l'image affichée reste valable.
 // Le temps des animations n'avance que sur les images rendues : rien ne saute à la reprise.
 // Les particules, qui sinon resteraient figées en l'air, s'effacent doucement avant l'arrêt et reviennent à la reprise.
@@ -101,12 +102,16 @@ for (const ev of ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'keydown',
   addEventListener(ev, () => wake(), { capture: true, passive: true });
 document.addEventListener('visibilitychange', () => wake());
 
+// fond simple (thème épuré, ou qualité basse) : rien n'anime le décor, donc aucune raison de recalculer une image
+// qui ne changerait pas, et le post-traitement (plusieurs passes plein écran) ne sert à rien
+const simple = () => !!gfx.theme?.lite || !!gfx.Q.flatSky;
+
 let animT = 0, frameNo = 0;
 function frame(rawDt) {
   const lifted = liftedPiece() >= 0;
   const moving = tweening() || bursting() || rising() || gfx.shadowDirty || lifted || hintShown() || controls.autoRotate || fieldFading();
   if (moving) wake(200);
-  const awake = gfx.Q.live || performance.now() <= gfx.wakeUntil;
+  const awake = (gfx.Q.live && !simple()) || performance.now() <= gfx.wakeUntil;
   if (!awake && particleFade.value <= 0) {
     if (controls.update()) wake(200); // l'inertie de la caméra relance le rendu
     return;
@@ -127,7 +132,7 @@ function frame(rawDt) {
   keepPanInBounds();
   if (controls.update()) wake(200);
   updateField(t, dt);
-  if (gfx.Q.post) composer.render();
+  if (gfx.Q.post && !simple()) composer.render();
   else renderer.render(scene, camera);
 }
 

@@ -12,6 +12,14 @@
 //                  shape (sphere, octa, peg), puis pour chacun color, metalness, roughness, emissive, glow
 // horizon / band : brume d'horizon (couleur de base et bande lumineuse ajoutée près de l'horizon)
 // field          : pavage brumeux (creux, milieu, sommets, arêtes des cases)
+// decor          : ce que sont les plateaux voisins — valleys (vallées de brume), bench (ébauches sur l'établi),
+//                  reef (récif noyé), lava (coulées), floes (banquise), chalk (croquis à la craie),
+//                  gallery (pièces exposées), grid (ville en contrebas), garden (pierres d'un jardin sec).
+//                  En qualité basse, le décor laisse place au ciel du thème (horizon, band, skyTop) et à son sol
+//                  (floor) : à cette résolution il ne serait qu'une bouillie, pour un coût qu'on ne peut pas payer.
+// lite           : thème épuré — jamais de décor (le ciel du thème à la place), ni post-traitement, ni particules,
+//                  et l'image n'est recalculée que quand quelque chose bouge, à tous les niveaux de qualité
+// fog            : [début, fin] de la brume sur le plateau lui-même (34 et 120 par défaut)
 // fx             : effets du décor — beam (halos de lumière qui dérivent), alley (braises qui couvent sous la brume),
 //                  caustics (reflets ondulants), sparkle (paillettes)
 // dust / extra   : deux systèmes de particules (couleur, taille, sizeVar : variation de taille, opacité,
@@ -41,6 +49,7 @@ export const THEMES = [
     horizon: '#2a2140', band: '#a0607a', skyTop: '#0c0f22', glows: ['#8a4a8c', '#2c6f9f', '#ff9a5a'],
     floor: '#0b0a18',
     field: { low: '#2a2448', mid: '#6a5a8c', high: '#f0a878', edge: '#c890a8' },
+    decor: 'valleys',
     fx: { beam: '#ff9a6a', beamStrength: 0.7 },
     dust: { color: '#ffd0a0', size: 0.11, speed: 0.1, sway: 0.4, opacity: 0.6, sizeVar: 0.7 },
     extra: { color: '#ffe9a0', size: 0.13, speed: 0.04, sway: 0.9, flicker: 1, opacity: 0.95 },
@@ -62,6 +71,7 @@ export const THEMES = [
     horizon: '#2a1c14', band: '#6e4c2c', skyTop: '#0e0906', glows: ['#7a4a26', '#a8743a', '#e0a050'],
     floor: '#110b07',
     field: { low: '#3a2618', mid: '#7a5638', high: '#d8b07a', edge: '#a87c4a' },
+    decor: 'bench',
     fx: { beam: '#ffcf8a', beamStrength: 0.8 },
     dust: { color: '#ffd9a0', size: 0.13, speed: 0.08, sway: 0.25, opacity: 0.75, sizeVar: 0.8 },
     burst: { color: '#c89a62', count: 18, shards: true },
@@ -81,6 +91,7 @@ export const THEMES = [
     horizon: '#123038', band: '#3f8a86', skyTop: '#05121a', glows: ['#1f7a8a', '#2fae9a', '#d8b070'],
     floor: '#051116',
     field: { low: '#123a48', mid: '#2f7f88', high: '#d8c79a', edge: '#4fb3b0' },
+    decor: 'reef',
     fx: { caustics: 0.7 },
     dust: { color: '#bff8ff', size: 0.1, speed: 0.35, sway: 0.15, opacity: 0.55, sizeVar: 1 },
     extra: { color: '#7ff0e0', size: 0.06, speed: 0.06, sway: 0.4, flicker: 1, opacity: 0.9 },
@@ -101,7 +112,7 @@ export const THEMES = [
     horizon: '#24161a', band: '#7a3a22', skyTop: '#090606', glows: ['#8a2a1a', '#c05a20', '#ffa040'],
     floor: '#0b0707',
     field: { low: '#2a1a1c', mid: '#5a3530', high: '#e09050', edge: '#b0603a' },
-    fx: { alley: '#ff6a1a', alleyStrength: 0.9 },
+    decor: 'lava',
     dust: { color: '#ff9a40', size: 0.11, speed: 0.6, sway: 0.2, opacity: 0.85, flicker: 0.6, sizeVar: 0.8 },
     extra: { color: '#ffd27a', size: 0.07, speed: 2.2, speedVar: 1, sway: 0.3, flicker: 1, opacity: 1 },
     burst: { color: '#ffb040', count: 34, gravity: 0.4, speed: 1.6 },
@@ -121,6 +132,7 @@ export const THEMES = [
     horizon: '#4a5878', band: '#6f80a0', skyTop: '#1a2440', glows: ['#8aa0d8', '#a8d4ec', '#e0d0ec'],
     floor: '#202842',
     field: { low: '#3e4a6a', mid: '#7486ad', high: '#dfe8f8', edge: '#a8bce0' },
+    decor: 'floes',
     fx: { sparkle: 0.9 },
     dust: { color: '#ffffff', size: 0.17, speed: -0.45, sway: 0.5, opacity: 0.8, sizeVar: 1 },
     extra: { color: '#e8f4ff', size: 0.06, speed: -0.08, sway: 0.2, flicker: 1, opacity: 1 },
@@ -144,6 +156,7 @@ export const THEMES = [
     horizon: '#1a2120', band: '#56645e', skyTop: '#0a0d0d', glows: ['#3a4a46', '#5a6a60', '#8a8a78'],
     floor: '#0b0f0e',
     field: { low: '#1c2422', mid: '#4a5a55', high: '#c8d0c8', edge: '#e8ece0' },
+    decor: 'chalk',
     dust: { color: '#eef0e6', size: 0.11, speed: -0.06, sway: 0.35, opacity: 0.6, sizeVar: 0.9 },
     burst: { color: '#f2f4ec', count: 24, gravity: 2.5, speed: 0.8 },
     post: { bloom: { strength: 0.25, radius: 0.4, threshold: 1.1 }, vignette: 0.45, vignetteColor: '#050706', shadows: '#020604', highlights: '#0a0a06', saturation: 0.8, contrast: 1.05, grain: 0.03 },
@@ -164,6 +177,7 @@ export const THEMES = [
     horizon: '#16151a', band: '#5a5040', skyTop: '#070609', glows: ['#4a4038', '#6a5a40', '#c8a050'],
     floor: '#08080a',
     field: { low: '#15151a', mid: '#5a5860', high: '#e8e2d8', edge: '#d4a94a' },
+    decor: 'gallery',
     fx: { beam: '#ffd58a', beamStrength: 0.5 },
     dust: { color: '#ffd27a', size: 0.08, speed: 0.05, sway: 0.4, flicker: 0.8, opacity: 0.9, sizeVar: 0.8 },
     burst: { color: '#ffcf6a', count: 26, gravity: 3, speed: 1 },
@@ -184,6 +198,7 @@ export const THEMES = [
     horizon: '#140826', band: '#4a1a70', skyTop: '#040208', glows: ['#7a20c0', '#1aa0d0', '#ff40b0'],
     floor: '#05020c',
     field: { low: '#0a0418', mid: '#2a1050', high: '#ff3fd0', edge: '#30f0ff' },
+    decor: 'grid',
     fx: { beam: '#b040ff', beamStrength: 0.6 },
     dust: { color: '#7ff4ff', size: 0.06, speed: 0.15, sway: 0.2, flicker: 1, opacity: 0.9, sizeVar: 0.8 },
     extra: { color: '#ff5ad8', size: 0.06, speed: -0.1, sway: 0.3, flicker: 1, opacity: 0.9 },
@@ -191,5 +206,52 @@ export const THEMES = [
     post: { bloom: { strength: 0.6, radius: 0.45, threshold: 0.55 }, vignette: 0.5, vignetteColor: '#05000f', shadows: '#06001a', highlights: '#100014', saturation: 1.15, contrast: 1.1, aberration: 1.2 },
     light: { sky: '#b8a0ff', ground: '#100020', sun: '#e8e0ff', fill: '#ff40c0' },
     exposure: 0.95,
+  },
+  {
+    id: 'zen', name: 'Zen',
+    pips: { shape: 'peg', top: { color: '#f4ecd8', roughness: 0.55 }, base: { color: '#8c8273', roughness: 0.7 } },
+    // un jardin sec au petit matin : le gravier est ratissé autour des pierres, la mousse gagne les sommets,
+    // une bordure de bois tient le tout, et la lumière est celle, égale, d'un ciel couvert
+    terrain: {
+      top: ['#e9e2cf', '#e2d9c2', '#d7ccb3', '#c8bfa4', '#b5b095', '#a0a687', '#8d9b79', '#7d9070', '#6f8a6a'],
+      strata: ['#bfae90', '#c7b89b', '#b2a488', '#a1957c', '#938872'],
+    },
+    surface: 'gravel', roughness: 0.88,
+    plinth: '#4a3f31', plinthSurface: 'plank',
+    pieces: { roughness: 0.55, clearcoat: 0.18, clearcoatRoughness: 0.5, teams: [{ main: '#b2553f', dark: '#5a3a30' }, { main: '#3f6b8c', dark: '#2f4452' }] },
+    horizon: '#ddd3bc', band: '#f2ecd8', skyTop: '#aebfc4', glows: ['#cfd3c0', '#e2d8bf', '#f4efdd'],
+    floor: '#cdc3a9',
+    field: { low: '#b9b098', mid: '#d6cdb4', high: '#f0e8d2', edge: '#f6f1e2' },
+    decor: 'garden',
+    dust: { color: '#f0dcd4', size: 0.14, speed: -0.05, sway: 0.7, opacity: 0.45, sizeVar: 0.9 },
+    burst: { color: '#cfc6ad', count: 14, gravity: 3, speed: 0.7 },
+    envIntensity: 0.35,
+    post: { bloom: { strength: 0.18, radius: 0.6, threshold: 1.5 }, vignette: 0.22, vignetteColor: '#6a6252', shadows: '#141c20', highlights: '#161206', saturation: 0.88, contrast: 1.02, grain: 0.025 },
+    light: { sky: '#eef3f2', ground: '#b4a98e', sun: '#fff6e2', fill: '#cfe0e4' },
+    exposure: 1.05,
+  },
+  {
+    id: 'minimal', name: 'Minimal',
+    lite: true,
+    pips: { shape: 'peg', top: { color: '#ffffff', roughness: 0.45 }, base: { color: '#232a35', roughness: 0.6 } },
+    // la lisibilité d'abord : des couleurs plates, un dégradé de hauteur franc, un fond neutre, et rien qui bouge.
+    // Pas de pavage en raymarching, pas de post-traitement, pas de particules : le jeu seul, partout fluide.
+    terrain: {
+      // gris neutre, du plus sombre au plus clair : la hauteur se lit d'un coup d'œil, et les couleurs
+      // du jeu (pièces rouges et bleues, cases éclairées) ressortent sans rivaliser avec le décor
+      top: ['#3c4047', '#4a4f57', '#596069', '#69707a', '#7a828c', '#8d949e', '#a3aab3', '#bcc2ca', '#dde1e6'],
+      strata: ['#33363c', '#3a3e44', '#41454c', '#484d54', '#50555c'],
+    },
+    surface: 'flat', roughness: 0.92,
+    plinth: '#c2c6cc',
+    pieces: { roughness: 0.5, clearcoat: 0, teams: [{ main: '#cf3a2c', dark: '#7e1f16' }, { main: '#1f6ccf', dark: '#13417e' }] },
+    horizon: '#dfe5ec', band: '#eef2f7', skyTop: '#f4f7fa', glows: ['#c9d4e0', '#dfe5ec', '#ffffff'],
+    floor: '#ccd0d6',
+    field: { low: '#c6cad0', mid: '#dfe2e6', high: '#ffffff', edge: '#9ba0a8' },
+    fog: [70, 260],
+    envIntensity: 0.12,
+    burst: { color: '#7e8894', count: 10, gravity: 9, speed: 0.8 },
+    post: { bloom: { strength: 0, radius: 0.4, threshold: 1.4 }, vignette: 0 },
+    light: { sky: '#ffffff', ground: '#aab3be', sun: '#ffffff', fill: '#dce6f2' },
   },
 ];

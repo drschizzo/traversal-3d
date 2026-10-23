@@ -2,12 +2,13 @@
 // aucune texture à charger (en qualité basse, le bruit est lu dans la texture précalculée, voir background.js).
 // 0 mat · 1 bois · 2 pierre · 3 glace · 4 céramique · 5 sable · 6 planche (fil droit, pour les grandes surfaces)
 // 7 ardoise + craie · 8 marbre veiné d'or · 9 néon (arêtes lumineuses) · 10 paysage (herbe, roche, neige, terre)
+// 11 gravier ratissé (jardin sec) · 12 épure (aucun grain, un liseré sur le pourtour des dessus)
 import * as THREE from 'three';
 import { LEVEL, FLOOR_Y } from './context.js';
 import { noiseUniform } from './background.js';
 import surfaceGlsl from './glsl/surface.glsl?raw';
 
-const SURFACES = { matte: 0, wood: 1, stone: 2, ice: 3, ceramic: 4, sand: 5, plank: 6, slate: 7, marble: 8, neon: 9, landscape: 10 };
+const SURFACES = { matte: 0, wood: 1, stone: 2, ice: 3, ceramic: 4, sand: 5, plank: 6, slate: 7, marble: 8, neon: 9, landscape: 10, gravel: 11, flat: 12 };
 export const surfaceId = name => SURFACES[name || 'matte'];
 
 const SURFACE_GLSL = `#define LEVEL_H ${LEVEL.toFixed(2)}\n${surfaceGlsl}`;

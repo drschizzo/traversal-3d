@@ -2,6 +2,14 @@
 // plateaux possibles, tous produits par le même générateur. Ce pavage est rendu en raymarching volumétrique
 // (glsl/field.frag.glsl) : une brume dont la densité épouse le relief en colonnes de chaque plateau, et qui se perd
 // dans le brouillard d'horizon. Il est rendu à part, en basse résolution et flouté, puis sert de fond à la scène.
+//
+// Chaque thème dit ce que sont ces plateaux voisins (DECORS) : des vallées de brume, les ébauches posées sur
+// l'établi, un récif, des coulées de lave, une banquise, des croquis à la craie, les pièces d'une galerie, une ville
+// en contrebas, les pierres d'un jardin sec. Le relief ne change pas : la matière qui l'habille, oui.
+//
+// Fond simple (qualité basse, thèmes épurés) : à cette résolution le pavage ne serait qu'une bouillie, et il coûte
+// cher là où il faut économiser. On le remplace alors par le ciel du thème (sky.frag.glsl) et son sol, qui ne
+// coûtent qu'une passe triviale et restent nets.
 import * as THREE from 'three';
 import { TERRAINS, generateTerrain, randomSeed, cx, cy } from '../../core/index.js';
 import { renderer, scene, camera, gfx, HORIZON, HAZE_BAND, FLOOR_Y, fullScreenMesh } from './context.js';
@@ -9,20 +17,42 @@ import { NOISE_N } from './glsl/chunks.js';
 import floorFrag from './glsl/floor.frag.glsl?raw';
 import fieldVert from './glsl/field.vert.glsl?raw';
 import fieldFrag from './glsl/field.frag.glsl?raw';
+import skyFrag from './glsl/sky.frag.glsl?raw';
 import blurFrag from './glsl/blur.frag.glsl?raw';
 
 const TILE_PITCH = 12;                  // un plateau 10×10 + une allée de brume
 const ATLAS_N = 8;                      // atlas de 8×8 = 64 plateaux distincts
 const FIELD_TOP = FLOOR_Y + 3.3;
 
+// décors (theme.decor) : chacun compile sa variante du shader du pavage (#ifdef DECOR_* dans field.frag.glsl) ;
+// « valleys » est le décor par défaut, celui du #else, donc sans define
+const DECORS = {
+  valleys: '', bench: 'DECOR_BENCH', reef: 'DECOR_REEF', lava: 'DECOR_LAVA', floes: 'DECOR_FLOES',
+  chalk: 'DECOR_CHALK', gallery: 'DECOR_GALLERY', grid: 'DECOR_GRID', garden: 'DECOR_GARDEN',
+};
+let decorDefine = '';
+let theme = null;     // thème appliqué
+let simple = false;   // fond simple : ciel et sol du thème, sans pavage
+// brume du pavage au pied du socle (board.js) : il n'y en a pas quand il n'y a pas de pavage
+export const mistAmount = { value: 0.85 };
+
 // sol sombre sous la brume, qui se fond dans l'horizon
+// couleurs du décor qui portent un fond simple : le gros de la brume et le halo de ses sommets
+const backdropHaze = { value: new THREE.Color() }, backdropGlow = { value: new THREE.Color() };
 const floorMat = new THREE.ShaderMaterial({
-  uniforms: { base: { value: new THREE.Color(0x0a0c16) }, fogc: { value: HORIZON }, band: { value: HAZE_BAND } },
+  uniforms: {
+    base: { value: new THREE.Color(0x0a0c16) }, fogc: { value: HORIZON }, band: { value: HAZE_BAND },
+    haze: backdropHaze, glow: backdropGlow,
+  },
   vertexShader: 'varying vec3 vWp; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vWp = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
   fragmentShader: floorFrag,
 });
+// Sous le pavage, le sol n'écrit que la profondeur (la brume le recouvre) ; avec un fond simple, il devient
+// visible et donne au plateau une surface où poser.
+const hiddenFloorMat = new THREE.MeshBasicMaterial({ colorWrite: false });
+/** @type {THREE.Mesh<THREE.PlaneGeometry, THREE.Material>} */
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(440, 440), hiddenFloorMat);
 {
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(440, 440), new THREE.MeshBasicMaterial({ colorWrite: false }));
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = FLOOR_Y;
   scene.add(floor);
@@ -85,6 +115,20 @@ export const fieldMat = new THREE.ShaderMaterial({
 // couleur des creux du pavage : le pied du socle s'y noie (board.js)
 export const mistColor = fieldMat.uniforms.uLow.value;
 
+// ciel du fond simple : un triangle plein écran dessiné avant tout le reste, le sol s'y pose
+const skyMat = new THREE.ShaderMaterial({
+  depthTest: false, depthWrite: false,
+  uniforms: {
+    uProjInv: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() },
+    fogc: { value: HORIZON }, band: { value: HAZE_BAND }, top: { value: new THREE.Color() },
+    haze: backdropHaze, glow: backdropGlow,
+  },
+  vertexShader: fieldVert,
+  fragmentShader: skyFrag,
+});
+const sky = fullScreenMesh(skyMat);
+sky.renderOrder = -1;
+
 const fieldScene = new THREE.Scene();
 const fieldRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
 fieldScene.add(fullScreenMesh(fieldMat));
@@ -127,6 +171,12 @@ function renderField() {
 let fieldFrame = 0;
 const lastView = new THREE.Matrix4(), lastProj = new THREE.Matrix4();
 export function updateField(t, dt) {
+  camera.updateMatrixWorld();
+  if (simple) {   // seul le ciel suit la caméra ; il ne coûte qu'une passe plein écran
+    skyMat.uniforms.uProjInv.value.copy(camera.projectionMatrixInverse);
+    skyMat.uniforms.uCamWorld.value.copy(camera.matrixWorld);
+    return;
+  }
   const u = fieldMat.uniforms;
   u.uTime.value = t;
   u.uFade.value = Math.min(1, u.uFade.value + dt * 0.5);
@@ -136,9 +186,10 @@ export function updateField(t, dt) {
   if (moved || fieldFrame++ % gfx.Q.fieldEvery === 0) renderField();
 }
 // le pavage apparaît en fondu au chargement
-export const fieldFading = () => fieldMat.uniforms.uFade.value < 1;
+export const fieldFading = () => !simple && fieldMat.uniforms.uFade.value < 1;
 
 export function applyFieldQuality(prev) {
+  applyBackdrop();   // le niveau de qualité décide aussi du fond (pavage ou ciel simple)
   if (prev.steps !== gfx.Q.steps || prev.octave2 !== gfx.Q.octave2) {
     fieldMat.defines.FIELD_STEPS = gfx.Q.steps;
     fieldMat.defines.FIELD_OCTAVE2 = gfx.Q.octave2;
@@ -148,8 +199,31 @@ export function applyFieldQuality(prev) {
   fieldFrame = 0;
 }
 
-export function applyBackgroundTheme(theme) {
+// Choisit le fond : le pavage, ou le ciel simple du thème quand le thème est épuré ou la qualité basse.
+function applyBackdrop() {
+  if (!theme) return;
+  simple = !!theme.lite || !!gfx.Q.flatSky;
+  floor.material = simple ? floorMat : hiddenFloorMat;
+  mistAmount.value = simple ? 0 : 0.85;
+  scene.background = simple ? null : blurRT.texture;
+  if (simple) scene.add(sky);
+  else { sky.removeFromParent(); fieldMat.uniforms.uFade.value = 0; }   // le pavage revient en fondu
+}
+
+export function applyBackgroundTheme(t) {
+  theme = t;
   floorMat.uniforms.base.value.set(theme.floor);
+  skyMat.uniforms.top.value.set(theme.skyTop);
+  backdropHaze.value.set(theme.field.mid);
+  backdropGlow.value.set(theme.field.high);
+  applyBackdrop();
+  const decor = DECORS[theme.decor] ?? '';
+  if (decor !== decorDefine) {
+    if (decorDefine) delete fieldMat.defines[decorDefine];
+    if (decor) fieldMat.defines[decor] = '';
+    decorDefine = decor;
+    fieldMat.needsUpdate = true;
+  }
   const fu = fieldMat.uniforms;
   fu.uLow.value.set(theme.field.low); fu.uMid.value.set(theme.field.mid);
   fu.uHigh.value.set(theme.field.high); fu.uEdge.value.set(theme.field.edge);

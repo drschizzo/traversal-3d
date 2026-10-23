@@ -5,12 +5,12 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { mulberry32 } from '../../core/index.js';
 import { scene, gfx, LEVEL, topY, cellXZ, FLOOR_Y } from './context.js';
 import { withSurface, surfaceId } from './surfaces.js';
-import { mistColor } from './background.js';
+import { mistColor, mistAmount } from './background.js';
 import { numberTexture } from './textures.js';
 import { TEAM } from '../ui/colors.js';
 
 const terrainSurface = { uSurface: { value: 0 } };
-const plinthSurface = { uSurface: { value: 0 }, uGlowAmt: { value: 0 }, uMistAmt: { value: 0.85 }, uMistCol: { value: mistColor } };
+const plinthSurface = { uSurface: { value: 0 }, uGlowAmt: { value: 0 }, uMistAmt: mistAmount, uMistCol: { value: mistColor } };
 export const terrainMat = withSurface(new THREE.MeshStandardMaterial({ roughness: 0.8, metalness: 0, envMapIntensity: 0.2 }), terrainSurface);
 
 // socle : le plateau joué s'élève au-dessus de la brume des autres mondes
