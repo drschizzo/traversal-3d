@@ -12,11 +12,18 @@
 //                  shape (sphere, octa, peg), puis pour chacun color, metalness, roughness, emissive, glow
 // horizon / band : brume d'horizon (couleur de base et bande lumineuse ajoutée près de l'horizon)
 // field          : pavage brumeux (creux, milieu, sommets, arêtes des cases)
-// decor          : ce que sont les plateaux voisins — valleys (vallées de brume), bench (ébauches sur l'établi),
-//                  reef (récif noyé), lava (coulées), floes (banquise), chalk (croquis à la craie),
-//                  gallery (pièces exposées), grid (ville en contrebas), garden (pierres d'un jardin sec).
-//                  En qualité basse, le décor laisse place au ciel du thème (horizon, band, skyTop) et à son sol
-//                  (floor) : à cette résolution il ne serait qu'une bouillie, pour un coût qu'on ne peut pas payer.
+// decor          : le plateau est un paysage, et le pavage montre les autres paysages possibles — valleys
+//                  (vallées de brume), reef (récif noyé), lava (coulées), floes (banquise), grid (ville en
+//                  contrebas), garden (pierres d'un jardin sec). En qualité basse, ce pavage laisse place au ciel
+//                  du thème (horizon, band, skyTop) et à son sol (floor) : à cette résolution il ne serait qu'une
+//                  bouillie, pour un coût qu'on ne peut pas payer là.
+// room           : au lieu du pavage, le plateau est un objet posé sur une table, dans une pièce qui tombe dans
+//                  le noir — kind (la surface de la table : bench, hall, slateTable), base (sa couleur),
+//                  pool (son accent : filets d'or, traits de craie), roughness / metalness / env (sa finition),
+//                  far / glow (le noir de la pièce au loin, où la table s'éteint et que le ciel rejoint).
+//                  La table est éclairée comme le plateau,
+//                  et ne coûte presque rien : ces décors tiennent aussi en qualité basse.
+// camps          : force de la lueur des deux camps à l'horizon, derrière les lignes d'arrivée (0,5 par défaut)
 // lite           : thème épuré — jamais de décor (le ciel du thème à la place), ni post-traitement, ni particules,
 //                  et l'image n'est recalculée que quand quelque chose bouge, à tous les niveaux de qualité
 // fog            : [début, fin] de la brume sur le plateau lui-même (34 et 120 par défaut)
@@ -68,10 +75,11 @@ export const THEMES = [
     surface: 'wood', roughness: 0.62,
     plinth: '#3a2414', plinthSurface: 'plank',
     pieces: { roughness: 0.48, clearcoat: 0.35, clearcoatRoughness: 0.4, teams: [{ main: '#a8402e', dark: '#4a2c18' }, { main: '#2f5a94', dark: '#4a2c18' }] },
-    horizon: '#2a1c14', band: '#6e4c2c', skyTop: '#0e0906', glows: ['#7a4a26', '#a8743a', '#e0a050'],
+    horizon: '#2a1c14', band: '#382515', skyTop: '#0e0906', glows: ['#7a4a26', '#a8743a', '#e0a050'],
     floor: '#110b07',
     field: { low: '#3a2618', mid: '#7a5638', high: '#d8b07a', edge: '#a87c4a' },
-    decor: 'bench',
+    room: { kind: 'bench', base: '#6b4728', pool: '#ffcf8a', roughness: 0.8, env: 0.15, far: '#150d05', glow: '#3a2410' },
+    camps: 0.4,
     fx: { beam: '#ffcf8a', beamStrength: 0.8 },
     dust: { color: '#ffd9a0', size: 0.13, speed: 0.08, sway: 0.25, opacity: 0.75, sizeVar: 0.8 },
     burst: { color: '#c89a62', count: 18, shards: true },
@@ -153,10 +161,11 @@ export const THEMES = [
     surface: 'slate', roughness: 0.9,
     plinth: '#1e2423', plinthSurface: 'slate',
     pieces: { roughness: 0.45, clearcoat: 0.3, clearcoatRoughness: 0.35 },
-    horizon: '#1a2120', band: '#56645e', skyTop: '#0a0d0d', glows: ['#3a4a46', '#5a6a60', '#8a8a78'],
+    horizon: '#1a2120', band: '#242b28', skyTop: '#0a0d0d', glows: ['#3a4a46', '#5a6a60', '#8a8a78'],
     floor: '#0b0f0e',
     field: { low: '#1c2422', mid: '#4a5a55', high: '#c8d0c8', edge: '#e8ece0' },
-    decor: 'chalk',
+    room: { kind: 'slateTable', base: '#39423f', pool: '#cfd6c8', roughness: 0.92, env: 0.1, far: '#101514', glow: '#2a3330' },
+    camps: 0.4,
     dust: { color: '#eef0e6', size: 0.11, speed: -0.06, sway: 0.35, opacity: 0.6, sizeVar: 0.9 },
     burst: { color: '#f2f4ec', count: 24, gravity: 2.5, speed: 0.8 },
     post: { bloom: { strength: 0.25, radius: 0.4, threshold: 1.1 }, vignette: 0.45, vignetteColor: '#050706', shadows: '#020604', highlights: '#0a0a06', saturation: 0.8, contrast: 1.05, grain: 0.03 },
@@ -174,10 +183,11 @@ export const THEMES = [
     plinth: '#141418', plinthSurface: 'marble',
     pieces: { roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.05 },
     envIntensity: 0.7,
-    horizon: '#16151a', band: '#5a5040', skyTop: '#070609', glows: ['#4a4038', '#6a5a40', '#c8a050'],
+    horizon: '#16151a', band: '#272219', skyTop: '#070609', glows: ['#4a4038', '#6a5a40', '#c8a050'],
     floor: '#08080a',
     field: { low: '#15151a', mid: '#5a5860', high: '#e8e2d8', edge: '#d4a94a' },
-    decor: 'gallery',
+    room: { kind: 'hall', base: '#2a2a31', pool: '#e8b45a', roughness: 0.16, metalness: 0.1, env: 0.7, far: '#0a0a0d', glow: '#2a2418' },
+    camps: 0.4,
     fx: { beam: '#ffd58a', beamStrength: 0.5 },
     dust: { color: '#ffd27a', size: 0.08, speed: 0.05, sway: 0.4, flicker: 0.8, opacity: 0.9, sizeVar: 0.8 },
     burst: { color: '#ffcf6a', count: 26, gravity: 3, speed: 1 },
@@ -223,6 +233,7 @@ export const THEMES = [
     floor: '#cdc3a9',
     field: { low: '#b9b098', mid: '#d6cdb4', high: '#a8b188', edge: '#f6f1e2' },
     decor: 'garden',
+    camps: 0.22,
     dust: { color: '#f0dcd4', size: 0.14, speed: -0.05, sway: 0.7, opacity: 0.45, sizeVar: 0.9 },
     burst: { color: '#cfc6ad', count: 14, gravity: 3, speed: 0.7 },
     envIntensity: 0.35,
@@ -249,6 +260,7 @@ export const THEMES = [
     floor: '#ccd0d6',
     field: { low: '#c6cad0', mid: '#dfe2e6', high: '#ffffff', edge: '#9ba0a8' },
     fog: [70, 260],
+    camps: 0.14,
     envIntensity: 0.12,
     burst: { color: '#7e8894', count: 10, gravity: 9, speed: 0.8 },
     post: { bloom: { strength: 0, radius: 0.4, threshold: 1.4 }, vignette: 0 },

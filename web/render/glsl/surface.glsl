@@ -6,6 +6,8 @@ uniform float uSurfTime;
 uniform float uGlowAmt;
 uniform float uMistAmt;
 uniform vec3 uMistCol;
+uniform vec3 uAccent;
+uniform float uFar;
 varying vec3 vSurfP;
 varying vec3 vSurfN;
 float gPits = 0.0, gGold = 0.0;
@@ -95,11 +97,62 @@ vec3 surfaceTint(vec3 base, inout float rough){
     } else {
       base *= 0.88 + 0.16 * sNoise(vec3(p.x * 5.0, p.y * 22.0, p.z * 5.0));
     }
+  } else if (uSurface == 13) {               // l'établi : larges planches, fil du bois, nœuds et coups de scie
+    float v = p.z * 0.21;                                              // une planche d'un peu moins de 5 unités
+    float joint = smoothstep(0.012, 0.055, min(fract(v), 1.0 - fract(v)));
+    float way = sHash(vec3(floor(v), 1.0, 0.0)) > 0.5 ? 1.0 : -1.0;    // le fil alterne d'une planche à l'autre
+    float grain = sNoise(vec3(p.x * 0.3 * way, 0.0, p.z * 5.0)) * 0.5 + sNoise(vec3(p.x * 1.4, 0.0, p.z * 15.0)) * 0.3
+                + sNoise(vec3(p.x * 4.0, 0.0, p.z * 42.0)) * 0.2;      // du fil large jusqu'aux fibres
+    base *= (0.78 + 0.38 * grain) * mix(0.38, 1.0, joint);
+    base *= 1.0 - 0.18 * smoothstep(0.62, 0.95, sNoise(vec3(p.x * 0.5, 0.0, p.z * 0.5)));   // taches d'usage
+    vec2 kc = vec2(floor(p.x / 11.0), floor(v));                       // des nœuds, sur certaines planches
+    float kr = length((vec2(fract(p.x / 11.0), fract(v)) - 0.5) * vec2(11.0, 4.8)) * (0.7 + 0.7 * sHash(vec3(kc, 1.0)));
+    float knot = smoothstep(2.4, 0.0, kr) * step(0.52, sHash(vec3(kc, 7.0)));
+    base *= 1.0 - 0.55 * knot * (0.4 + 0.6 * abs(sin(kr * 6.5)));
+    base *= 1.0 - 0.28 * smoothstep(0.985, 1.0, sNoise(vec3(p.x * 0.02, 0.0, p.z * 2.2)));   // coups de scie
+    rough = 0.82 - 0.12 * grain;
+  } else if (uSurface == 14) {               // le dallage de la salle : marbre noir veiné de blanc, filets d'or
+    // Chaque dalle est sciée dans un autre bloc : le dessin ne se poursuit pas d'une dalle à l'autre. On tire
+    // donc les veines d'un repère propre à la dalle, tourné d'un quart de tour et décalé au hasard.
+    const float SLAB = 5.5;
+    vec2 sc = floor(p.xz / SLAB), lp = fract(p.xz / SLAB);
+    float joint = 1.0 - smoothstep(0.006, 0.028, min(min(lp.x, 1.0 - lp.x), min(lp.y, 1.0 - lp.y)));
+    float a = floor(sHash(vec3(sc, 2.0)) * 4.0) * 1.5707963;
+    vec2 q = mat2(cos(a), -sin(a), sin(a), cos(a)) * (lp - 0.5) * SLAB
+           + vec2(sHash(vec3(sc, 5.0)), sHash(vec3(sc, 9.0))) * 60.0;
+    vec3 qp = vec3(q.x, p.y, q.y);
+    // un champ déformé à trois échelles, dont on tire trois réseaux de veines de plus en plus fins ; les veines
+    // ne coûtent que des sinus, c'est la déformation qui les fait serpenter
+    float w = sNoise(qp * 0.22) * 2.2 + sNoise(qp * 0.75) * 0.9 + sNoise(qp * 2.3) * 0.35;
+    float v1 = pow(smoothstep(0.62, 1.0, 1.0 - abs(sin(q.x * 1.5 + q.y * 0.95 + w * 1.7))), 2.2);
+    float v2 = pow(smoothstep(0.75, 1.0, 1.0 - abs(sin(q.y * 2.6 - q.x * 0.8 + w * 1.1))), 3.5);
+    float v3 = pow(smoothstep(0.85, 1.0, 1.0 - abs(sin((q.x + q.y) * 5.2 + w * 2.4))), 6.0);
+    base *= 0.84 + 0.26 * sNoise(qp * 0.9) + 0.1 * sNoise(qp * 3.2);     // nuages laiteux de la pierre
+    base = mix(base, base * 2.6 + 0.009, v1 * 0.45);                     // veines principales
+    base = mix(base, base * 2.1 + 0.005, v2 * 0.35);                     // veines secondaires
+    base = mix(base, base * 1.8 + 0.003, v3 * 0.3);                      // capillaires
+    base = mix(base, base * 0.3, joint);
+    // le filet d'or, lui, est une incrustation du dallage : il traverse les dalles sans s'arrêter
+    float ww = sNoise(p * 0.1) * 2.0;
+    float inlay = pow(smoothstep(0.88, 1.0, 1.0 - abs(sin(p.x * 0.34 + p.z * 0.21 + ww))), 4.0);
+    base = mix(base, uAccent * 0.4, inlay * 0.45);
+    rough = mix(0.12, 0.5, joint) - 0.04 * v1;
+  } else if (uSurface == 15) {               // la table d'ardoise, et les parties d'avant à demi effacées
+    base *= 0.84 + 0.3 * (sNoise(vec3(p.x * 1.1, 0.0, p.z * 1.1)) * 0.45 + sNoise(vec3(p.x * 0.8, 0.0, p.z * 9.0)) * 0.35
+                        + sNoise(p * 9.0) * 0.2);                        // dalles, feuilletage, grain
+    base += uAccent * 0.05 * smoothstep(0.6, 0.95, sNoise(vec3(p.x * 0.35, 0.0, p.z * 0.9)));   // traînées d'éponge
+    vec2 cell = (fract(p.xz / 13.0) - 0.5) * 13.0;
+    vec2 e = abs(fract(cell) - 0.5);
+    float line = smoothstep(0.4, 0.49, max(e.x, e.y)) * smoothstep(5.6, 5.0, max(abs(cell.x), abs(cell.y)));
+    base = mix(base, uAccent, line * smoothstep(0.3, 0.8, sNoise(p * 0.09)) * 0.3);
+    rough = 0.92;
   } else if (uSurface == 12) {               // épure : aucun grain, un liseré plus sombre sur le pourtour des dessus
     // les cases d'une même hauteur restent distinctes, sans rien ajouter qui gêne la lecture du relief
     float line = step(0.97, vSurfN.y) * (1.0 - smoothstep(0.03, 0.055, cellEdge(p)));
     base *= 1.0 - 0.22 * line;
   }
+  // les tables ne sont éclairées que par la lampe du jeu : un halo autour du plateau, le reste s'éteint
+  if (uSurface >= 13) base *= 0.26 + 1.35 * exp(-length(p.xz) * 0.08);
   return base;
 }
 // lumière propre à chaque matière : reflets de la glace, alvéoles qui rougeoient, caustiques, lumière tamisée

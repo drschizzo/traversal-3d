@@ -28,6 +28,14 @@ Object.assign(THREE.ShaderChunk, {
     vec3 backdropColor(vec3 fogc, vec3 band, vec3 haze, vec3 glow, float elev){
       return mix(hazeColor(fogc, band, elev), haze, 0.5) + glow * exp(-abs(elev) * 5.0) * 0.18;
     }`,
+  // Les deux camps à l'horizon : derrière chaque ligne d'arrivée, une lueur très sourde aux couleurs du camp.
+  // Le décor dit ainsi d'où l'on vient et où il faut aller — et, la caméra tournant, de quel côté on joue.
+  // Le camp Rouge est au fond (−Z), le Bleu devant (+Z), comme les bandes d'arrivée du plateau.
+  trv_camps: `vec3 campsGlow(vec3 red, vec3 blue, vec3 dir, float amount){
+    vec3 d = normalize(dir);
+    float z = normalize(d.xz + vec2(1e-5)).y;
+    return (red * smoothstep(0.1, 0.95, -z) + blue * smoothstep(0.1, 0.95, z)) * exp(-abs(d.y) * 4.0) * amount;
+  }`,
   trv_noise3: noiseGLSL('noise3', 'hash3'),
   trv_snoise: noiseGLSL('sNoise', 'sHash'),
 });

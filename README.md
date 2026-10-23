@@ -73,12 +73,18 @@ Les règles complètes et officielles sont sur [traversalgame.com/rules](https:/
 - **Interface d'aide** : cases accessibles, chemin et coût au survol, détail du combat attaque contre défense,
   fiche de pièce, annulation, affichage des hauteurs, règles intégrées.
 - **10 thèmes visuels** : Crépuscule, Atelier (bois), Lagon, Braise, Givre, Ardoise, Marbre & or, Néon, Zen
-  et Minimal. Chacun a son décor : le plateau joué se dresse au milieu d'autres plateaux possibles, qui sont
-  selon le thème des vallées de brume, des ébauches sur l'établi, un récif, des coulées de lave, une banquise,
-  des croquis à la craie, les pièces d'une galerie, une ville en contrebas ou les pierres d'un jardin sec.
-  Le thème **Minimal** se passe de décor, de post-traitement et de particules : il privilégie la lisibilité
-  du relief et reste fluide sur un appareil léger. En qualité basse, tous les thèmes font de même : le décor
-  laisse la place au ciel et au sol du thème, nets et presque gratuits.
+  et Minimal. Chacun a son décor, et le décor répond à ce que le thème dit du jeu :
+  - *un monde parmi les mondes possibles* — le plateau est un paysage, et le même générateur fabrique tous les
+    autres, qui s'étendent alentour en vallées de brume, récif noyé, coulées de lave, banquise, ville en
+    contrebas ou jardin de pierres ;
+  - *un objet posé quelque part* — le plateau est une chose fabriquée, sur l'établi de l'atelier, le dallage
+    d'une salle ou une table d'ardoise où les parties d'avant sont restées à demi effacées ;
+  - *rien que le jeu* — le thème **Minimal**, sans décor, sans post-traitement ni particules : la lisibilité du
+    relief d'abord, et la fluidité sur un appareil léger.
+
+  Dans tous les thèmes, les deux camps éclairent l'horizon derrière leur ligne d'arrivée : le décor dit d'où
+  l'on vient et où il faut aller. En qualité basse, le pavage des mondes possibles laisse la place au ciel et au
+  sol du thème, nets et presque gratuits ; les thèmes-objet, eux, gardent leur table, qui ne coûte rien.
   Chacun a sa matière de case procédurale, son décor, ses particules et son post-traitement.
 - **Décor « espace des possibles »** : le plateau joué se dresse au milieu d'un pavage infini d'autres plateaux,
   rendu en raymarching volumétrique et brumeux, qui se transforme lentement.

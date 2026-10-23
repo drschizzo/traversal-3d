@@ -3,17 +3,28 @@
 // (glsl/field.frag.glsl) : une brume dont la densité épouse le relief en colonnes de chaque plateau, et qui se perd
 // dans le brouillard d'horizon. Il est rendu à part, en basse résolution et flouté, puis sert de fond à la scène.
 //
-// Chaque thème dit ce que sont ces plateaux voisins (DECORS) : des vallées de brume, les ébauches posées sur
-// l'établi, un récif, des coulées de lave, une banquise, des croquis à la craie, les pièces d'une galerie, une ville
-// en contrebas, les pierres d'un jardin sec. Le relief ne change pas : la matière qui l'habille, oui.
+// Trois familles de décor, selon ce que le thème dit du jeu.
 //
-// Fond simple (qualité basse, thèmes épurés) : à cette résolution le pavage ne serait qu'une bouillie, et il coûte
-// cher là où il faut économiser. On le remplace alors par le ciel du thème (sky.frag.glsl) et son sol, qui ne
-// coûtent qu'une passe triviale et restent nets.
+// « Un monde parmi les mondes possibles » (DECORS, le pavage ci-dessus) : le plateau est un paysage, et le même
+// générateur fabrique tous les autres. Vallées de brume, récif noyé, coulées de lave, banquise, ville en
+// contrebas, jardin sec — le relief ne change pas, la matière qui l'habille, oui.
+//
+// « Un objet posé quelque part » (theme.room) : le plateau est une chose fabriquée, posée sur une table, dans
+// une pièce qui tombe dans le noir. Un jeu en bois n'a rien à faire au milieu d'une plaine infinie d'autres jeux
+// en bois : il est sur l'établi. La table est un matériau éclairé, de la même fabrique que le plateau
+// (surfaces.js) ; pas de raymarching du tout, donc ces décors tiennent même en qualité basse.
+//
+// « Rien que le jeu » (sky.frag.glsl) : le ciel et le sol du thème, et c'est tout. C'est aussi ce que devient le
+// pavage en qualité basse, où il ne serait qu'une bouillie pour un coût qu'on ne peut pas payer là.
+//
+// Par-dessus les trois, les deux camps à l'horizon (trv_camps) : une lueur sourde derrière chaque ligne
+// d'arrivée, qui dit d'où l'on vient et où il faut aller.
 import * as THREE from 'three';
 import { TERRAINS, generateTerrain, randomSeed, cx, cy } from '../../core/index.js';
 import { renderer, scene, camera, gfx, HORIZON, HAZE_BAND, FLOOR_Y, fullScreenMesh } from './context.js';
-import { NOISE_N } from './glsl/chunks.js';
+import { TEAM } from '../ui/colors.js';
+import { noiseUniform } from './noise.js';
+import { withSurface, surfaceId } from './surfaces.js';
 import floorFrag from './glsl/floor.frag.glsl?raw';
 import fieldVert from './glsl/field.vert.glsl?raw';
 import fieldFrag from './glsl/field.frag.glsl?raw';
@@ -24,39 +35,53 @@ const TILE_PITCH = 12;                  // un plateau 10×10 + une allée de bru
 const ATLAS_N = 8;                      // atlas de 8×8 = 64 plateaux distincts
 const FIELD_TOP = FLOOR_Y + 3.3;
 
-// décors (theme.decor) : chacun compile sa variante du shader du pavage (#ifdef DECOR_* dans field.frag.glsl) ;
+// décors du pavage (theme.decor) : chacun compile sa variante du shader (#ifdef DECOR_* dans field.frag.glsl) ;
 // « valleys » est le décor par défaut, celui du #else, donc sans define
 const DECORS = {
-  valleys: '', bench: 'DECOR_BENCH', reef: 'DECOR_REEF', lava: 'DECOR_LAVA', floes: 'DECOR_FLOES',
-  chalk: 'DECOR_CHALK', gallery: 'DECOR_GALLERY', grid: 'DECOR_GRID', garden: 'DECOR_GARDEN',
+  valleys: '', reef: 'DECOR_REEF', lava: 'DECOR_LAVA', floes: 'DECOR_FLOES', grid: 'DECOR_GRID', garden: 'DECOR_GARDEN',
 };
 let decorDefine = '';
-let theme = null;     // thème appliqué
-let simple = false;   // fond simple : ciel et sol du thème, sans pavage
+let theme = null;       // thème appliqué
+let backdrop = 'field'; // 'field' (pavage) · 'room' (une table dans une pièce) · 'sky' (le ciel du thème seul)
 // brume du pavage au pied du socle (board.js) : il n'y en a pas quand il n'y a pas de pavage
 export const mistAmount = { value: 0.85 };
 
 // sol sombre sous la brume, qui se fond dans l'horizon
-// couleurs du décor qui portent un fond simple : le gros de la brume et le halo de ses sommets
+// couleurs du décor qui portent un fond sans pavage : le gros de la brume et le halo de ses sommets
 const backdropHaze = { value: new THREE.Color() }, backdropGlow = { value: new THREE.Color() };
+// les deux camps à l'horizon : le Rouge au fond (−Z), le Bleu devant (+Z), comme les bandes d'arrivée
+const campRed = { value: new THREE.Color() }, campBlue = { value: new THREE.Color() }, campAmount = { value: 0 };
+const campUniforms = { uRed: campRed, uBlue: campBlue, uCamps: campAmount };
+const floorVert = 'varying vec3 vWp; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vWp = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }';
 const floorMat = new THREE.ShaderMaterial({
   uniforms: {
     base: { value: new THREE.Color(0x0a0c16) }, fogc: { value: HORIZON }, band: { value: HAZE_BAND },
-    haze: backdropHaze, glow: backdropGlow,
+    haze: backdropHaze, glow: backdropGlow, ...campUniforms,
   },
-  vertexShader: 'varying vec3 vWp; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vWp = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
+  vertexShader: floorVert,
   fragmentShader: floorFrag,
 });
+
+// La table des thèmes-objet : le même plan que le sol, mais un matériau éclairé comme le plateau et le socle,
+// avec la même fabrique de surfaces procédurales (surfaces.js). C'est la lumière qui la rend vivante : le fil du
+// bois accroche le soleil rasant, le marbre poli renvoie le ciel, et la table reçoit l'ombre du jeu.
+const roomSurface = {
+  uSurface: { value: 0 }, uGlowAmt: { value: 1 }, uMistAmt: { value: 1 },
+  uMistCol: { value: new THREE.Color() }, uAccent: { value: new THREE.Color() }, uFar: { value: 15 },
+};
+const roomMat = withSurface(new THREE.MeshStandardMaterial({ roughness: 0.8, metalness: 0 }), roomSurface);
 // Sous le pavage, le sol n'écrit que la profondeur (la brume le recouvre) ; avec un fond simple, il devient
 // visible et donne au plateau une surface où poser.
 const hiddenFloorMat = new THREE.MeshBasicMaterial({ colorWrite: false });
+// l'ombre du jeu, portée sur un sol qui ne la recevrait pas lui-même (pavage, ciel simple)
+const shadowCatcher = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.ShadowMaterial({ opacity: 0.4 }));
 /** @type {THREE.Mesh<THREE.PlaneGeometry, THREE.Material>} */
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(440, 440), hiddenFloorMat);
 {
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = FLOOR_Y;
+  floor.receiveShadow = true;
   scene.add(floor);
-  const shadowCatcher = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.ShadowMaterial({ opacity: 0.4 }));
   shadowCatcher.rotation.x = -Math.PI / 2;
   shadowCatcher.position.y = FLOOR_Y + 0.005;
   shadowCatcher.receiveShadow = true;
@@ -73,27 +98,6 @@ function writeAtlas(slot, channel, h) {
 }
 for (let k = 0; k < ATLAS_N * ATLAS_N; k++) writeAtlas(k, 0, generateTerrain(TERRAINS[k % TERRAINS.length], randomSeed()));
 
-// Bruit 3D précalculé (qualité basse) : les valeurs pseudo-aléatoires du réseau sont rangées dans une texture 3D
-// et lues par interpolation matérielle, avec le même lissage que le calcul direct : une lecture au lieu de huit hachages.
-export const noiseUniform = { value: null };
-export function ensureNoiseTex() {
-  if (noiseUniform.value) return;
-  const n = NOISE_N, data = new Uint8Array(n * n * n), fr = v => v - Math.floor(v), h = v => fr(v * 0.3183099 + 0.1) * 17;
-  for (let z = 0, k = 0; z < n; z++)
-    for (let y = 0; y < n; y++)
-      for (let x = 0; x < n; x++, k++) {
-        const a = h(x), b = h(y), c = h(z);
-        data[k] = Math.round(fr(a * b * c * (a + b + c)) * 255);
-      }
-  const tex = new THREE.Data3DTexture(data, n, n, n);
-  tex.format = THREE.RedFormat;
-  tex.minFilter = tex.magFilter = THREE.LinearFilter;
-  tex.wrapS = tex.wrapT = tex.wrapR = THREE.RepeatWrapping;
-  tex.unpackAlignment = 1;
-  tex.needsUpdate = true;
-  noiseUniform.value = tex;
-}
-
 export const fieldMat = new THREE.ShaderMaterial({
   depthTest: false, depthWrite: false,
   defines: {
@@ -107,7 +111,7 @@ export const fieldMat = new THREE.ShaderMaterial({
     fogc: { value: HORIZON }, band: { value: HAZE_BAND },
     uLow: { value: new THREE.Color() }, uMid: { value: new THREE.Color() }, uHigh: { value: new THREE.Color() }, uEdge: { value: new THREE.Color() },
     uBeam: { value: new THREE.Color(0) }, uBeamDir: { value: new THREE.Vector2(0.8, 0.6) }, uAlley: { value: new THREE.Color(0) },
-    uCaus: { value: 0 }, uSparkle: { value: 0 }, uNoise3D: noiseUniform,
+    uCaus: { value: 0 }, uSparkle: { value: 0 }, uNoise3D: noiseUniform, ...campUniforms,
   },
   vertexShader: fieldVert,
   fragmentShader: fieldFrag,
@@ -121,7 +125,7 @@ const skyMat = new THREE.ShaderMaterial({
   uniforms: {
     uProjInv: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() },
     fogc: { value: HORIZON }, band: { value: HAZE_BAND }, top: { value: new THREE.Color() },
-    haze: backdropHaze, glow: backdropGlow,
+    haze: backdropHaze, glow: backdropGlow, ...campUniforms,
   },
   vertexShader: fieldVert,
   fragmentShader: skyFrag,
@@ -172,7 +176,7 @@ let fieldFrame = 0;
 const lastView = new THREE.Matrix4(), lastProj = new THREE.Matrix4();
 export function updateField(t, dt) {
   camera.updateMatrixWorld();
-  if (simple) {   // seul le ciel suit la caméra ; il ne coûte qu'une passe plein écran
+  if (backdrop !== 'field') {   // seul le ciel suit la caméra ; il ne coûte qu'une passe plein écran
     skyMat.uniforms.uProjInv.value.copy(camera.projectionMatrixInverse);
     skyMat.uniforms.uCamWorld.value.copy(camera.matrixWorld);
     return;
@@ -186,7 +190,7 @@ export function updateField(t, dt) {
   if (moved || fieldFrame++ % gfx.Q.fieldEvery === 0) renderField();
 }
 // le pavage apparaît en fondu au chargement
-export const fieldFading = () => !simple && fieldMat.uniforms.uFade.value < 1;
+export const fieldFading = () => backdrop === 'field' && fieldMat.uniforms.uFade.value < 1;
 
 export function applyFieldQuality(prev) {
   applyBackdrop();   // le niveau de qualité décide aussi du fond (pavage ou ciel simple)
@@ -199,23 +203,42 @@ export function applyFieldQuality(prev) {
   fieldFrame = 0;
 }
 
-// Choisit le fond : le pavage, ou le ciel simple du thème quand le thème est épuré ou la qualité basse.
+// Choisit la famille de décor : la table du thème s'il en a une, sinon le pavage — ou son ciel seul quand le
+// thème est épuré ou la qualité basse (les tables, elles, ne coûtent presque rien et restent partout).
 function applyBackdrop() {
   if (!theme) return;
-  simple = !!theme.lite || !!gfx.Q.flatSky;
-  floor.material = simple ? floorMat : hiddenFloorMat;
-  mistAmount.value = simple ? 0 : 0.85;
-  scene.background = simple ? null : blurRT.texture;
-  if (simple) scene.add(sky);
-  else { sky.removeFromParent(); fieldMat.uniforms.uFade.value = 0; }   // le pavage revient en fondu
+  backdrop = theme.room ? 'room' : (theme.lite || gfx.Q.flatSky) ? 'sky' : 'field';
+  const field = backdrop === 'field';
+  floor.material = field ? hiddenFloorMat : backdrop === 'room' ? roomMat : floorMat;
+  shadowCatcher.visible = backdrop !== 'room';   // la table reçoit elle-même l'ombre du jeu
+  mistAmount.value = field ? 0.85 : 0;
+  scene.background = field ? blurRT.texture : null;
+  if (field) { sky.removeFromParent(); fieldMat.uniforms.uFade.value = 0; }   // le pavage revient en fondu
+  else scene.add(sky);
 }
 
 export function applyBackgroundTheme(t) {
   theme = t;
   floorMat.uniforms.base.value.set(theme.floor);
   skyMat.uniforms.top.value.set(theme.skyTop);
-  backdropHaze.value.set(theme.field.mid);
-  backdropGlow.value.set(theme.field.high);
+  backdropHaze.value.set(theme.room?.far || theme.field.mid);
+  backdropGlow.value.set(theme.room?.glow || theme.field.high);
+  // les camps prennent les couleurs des pièces du thème, assombries : une présence, pas une enseigne
+  const teams = theme.pieces?.teams || TEAM;
+  campRed.value.set(teams[0].main);
+  campBlue.value.set(teams[1].main);
+  campAmount.value = theme.camps ?? 0.5;
+  if (theme.room) {
+    roomMat.color.set(theme.room.base);
+    roomMat.roughness = theme.room.roughness ?? 0.8;
+    roomMat.metalness = theme.room.metalness ?? 0;
+    roomMat.envMapIntensity = theme.room.env ?? 0.2;
+    roomSurface.uSurface.value = surfaceId(theme.room.kind);
+    roomSurface.uAccent.value.set(theme.room.pool);
+    // La table s'éteint vers le noir de la pièce. Ce fondu est appliqué après l'étalonnage, donc la couleur est
+    // prise telle quelle, sans conversion linéaire (comme les teintes de postfx.js).
+    roomSurface.uMistCol.value.setHex(parseInt(theme.room.far.slice(1), 16), THREE.LinearSRGBColorSpace);
+  }
   applyBackdrop();
   const decor = DECORS[theme.decor] ?? '';
   if (decor !== decorDefine) {
