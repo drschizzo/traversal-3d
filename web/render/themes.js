@@ -221,7 +221,7 @@ export const THEMES = [
     pieces: { roughness: 0.55, clearcoat: 0.18, clearcoatRoughness: 0.5, teams: [{ main: '#b2553f', dark: '#5a3a30' }, { main: '#3f6b8c', dark: '#2f4452' }] },
     horizon: '#ddd3bc', band: '#f2ecd8', skyTop: '#aebfc4', glows: ['#cfd3c0', '#e2d8bf', '#f4efdd'],
     floor: '#cdc3a9',
-    field: { low: '#b9b098', mid: '#d6cdb4', high: '#f0e8d2', edge: '#f6f1e2' },
+    field: { low: '#b9b098', mid: '#d6cdb4', high: '#a8b188', edge: '#f6f1e2' },
     decor: 'garden',
     dust: { color: '#f0dcd4', size: 0.14, speed: -0.05, sway: 0.7, opacity: 0.45, sizeVar: 0.9 },
     burst: { color: '#cfc6ad', count: 14, gravity: 3, speed: 0.7 },

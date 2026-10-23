@@ -119,55 +119,78 @@ void main(){
     vec3 add = vec3(0.0);                                                  // lumière propre au décor
 
     #ifdef DECOR_BENCH
-      // la lampe de l'établi : un halo serré sur les plateaux proches, le reste de l'atelier reste dans le noir
+      // L'établi : la lampe fait un halo serré sur les plateaux proches, le reste de l'atelier reste dans le noir,
+      // et les longues planches du plan de travail courent sous la brume de sciure.
       float lamp = exp(-dist * 0.055);
-      ground *= 0.3 + 1.6 * lamp;
+      float plank = smoothstep(0.03, 0.13, abs(fract(p.z * 0.085 + 0.5) - 0.5));   // joints entre deux planches
+      ground *= (0.3 + 1.6 * lamp) * (0.62 + 0.62 * plank);
       body *= 0.35 + 0.9 * lamp;
+      add += uEdge * (1.0 - plank) * exp(-(p.y - FLOOR) * 3.0) * lamp * 0.6;
     #elif defined(DECOR_REEF)
-      // la nappe d'eau : dense et sourde sous la surface, écume sur le trait de côte des îlots
-      float sub = smoothstep(0.3, -0.25, p.y - WATER);
+      // Le récif : une houle lente soulève la nappe, l'écume suit le trait de côte des îlots, et la surface
+      // renvoie le ciel en éclats qui glissent.
+      float water = WATER + (sin(p.x * 0.11 + uTime * 0.35) + sin(p.z * 0.09 - uTime * 0.28)) * 0.09;
+      float sub = smoothstep(0.3, -0.25, p.y - water);
       ground += sub * 0.22 * (0.6 + 0.6 * n);
-      float shore = exp(-abs(p.y - WATER) * 9.0) * exp(-abs(H - WATER) * 1.6) * f.y;
+      float shore = exp(-abs(p.y - water) * 9.0) * exp(-abs(H - water) * 1.6) * f.y;
       hint += shore * 1.2;
-      add += uEdge * shore * 1.8;
+      float sheen = pow(0.5 + 0.5 * sin(p.x * 1.7 + sin(p.z * 1.3 + uTime * 0.7) * 2.0), 4.0);
+      add += uEdge * shore * 1.8 + uHigh * exp(-abs(p.y - water) * 20.0) * sheen * 0.45;
     #elif defined(DECOR_LAVA)
-      // les allées entre les plateaux sont des coulées : la lave y court, la croûte des plaques est éteinte
+      // Les coulées : la lave descend dans les allées par vagues qui avancent, et la croûte refroidie des
+      // plaques garde des fissures qui rougeoient entre les cases.
       float flow = smoothstep(0.4, 0.85, noise3(vec3(p.xz * 0.2, uTime * 0.08)));
-      float crack = (1.0 - f.y) * exp(-(p.y - FLOOR) * 2.2) * flow;
+      float lane = 0.5 + 0.5 * sin(p.z * 0.8 - uTime * 0.9 + flow * 6.0);           // le courant qui descend
+      float crack = (1.0 - f.y) * exp(-(p.y - FLOOR) * 2.2) * flow * (0.55 + 0.75 * lane);
+      float crust = f.z * f.y * exp(-abs(dy) * 5.0) * (0.3 + 0.7 * flow);           // fissures du dessus des plaques
       ground += crack * 0.5;
-      add += uHigh * crack * 2.0;
+      add += uHigh * (crack * 2.0 + crust * 0.6);
     #elif defined(DECOR_FLOES)
-      // les allées sont des chenaux d'eau noire : la brume ne tient que sur les plaques, coiffées de névé
+      // La banquise : les allées sont des chenaux d'eau noire, les plaques sont coiffées de névé, et là où
+      // elles se poussent la glace se dresse en crêtes de compression.
       ground *= f.y;
       float cap = exp(-abs(dy) * 7.0) * f.y;
-      body += cap * 0.35;
-      add += uHigh * cap * 0.5;
+      float ridge = smoothstep(0.3, 0.9, f.y) * smoothstep(1.0, 0.78, f.y) * exp(-abs(p.y - H - 0.22) * 3.5);
+      body += cap * 0.35 + ridge * 0.5;
+      add += uHigh * (cap * 0.5 + ridge * 1.1);
     #elif defined(DECOR_CHALK)
-      // le trait de craie : le pourtour des cases et les arêtes verticales des colonnes, et rien d'autre
+      // Le croquis à la craie : le pourtour des cases et les arêtes verticales des colonnes au trait, et les
+      // volumes remplis de hachures obliques, comme on dessine au tableau.
       float edge = f.w * f.y * step(dy, 0.05) * exp(min(dy, 0.0) * 0.8) * (1.0 - smoothstep(HINT_FAR * 0.4, HINT_FAR, t));
-      hint += edge * 0.9;
+      float hatch = pow(0.5 + 0.5 * sin((p.x - p.z) * 2.6 + p.y * 1.5), 4.0) * smoothstep(0.3, -0.25, dy) * f.y;
+      hint += edge * 0.9 + hatch * 0.4;
       add += uEdge * (hint + edge) * 0.25;
     #elif defined(DECOR_GALLERY)
-      // un puits de lumière au-dessus de chaque socle : la salle alentour reste dans l'ombre
+      // La galerie : chaque plateau est une pièce exposée, posée sur son socle de pierre, sous un puits de
+      // lumière où danse la poussière ; la salle alentour reste dans l'ombre.
       float shaft = exp(-dot(gLp, gLp) * 0.045);
-      body *= 0.5 + 1.1 * shaft;
+      float base = smoothstep(6.1, 5.3, max(abs(gLp.x), abs(gLp.y))) * smoothstep(FLOOR + 1.0, FLOOR + 0.5, p.y);
+      body = body * (0.5 + 1.1 * shaft) + base * 0.8;
       ground *= 0.4 + 1.2 * shaft;
-      add += uEdge * shaft * smoothstep(0.0, 1.2, p.y - FLOOR) * 0.25;
+      float motes = pow(0.5 + 0.5 * sin(p.x * 9.0 + uTime * 0.6) * sin(p.z * 8.0 - uTime * 0.5), 10.0);
+      add += uEdge * shaft * smoothstep(0.0, 1.2, p.y - FLOOR) * 0.25 + uHigh * shaft * motes * 0.5;
     #elif defined(DECOR_GRID)
-      // la trame lumineuse du sol, et les arêtes verticales des tours qui s'allument
+      // La ville : des tours éteintes aux arêtes allumées, sur une trame au sol que parcourent des impulsions.
       vec2 gr = abs(fract(p.xz * 0.5) - 0.5);
       float lines = smoothstep(0.44, 0.5, max(gr.x, gr.y)) * exp(-(p.y - FLOOR) * 2.6);
+      float pulse = pow(0.5 + 0.5 * sin(p.x * 0.35 - uTime * 2.2), 8.0) + pow(0.5 + 0.5 * sin(p.z * 0.3 + uTime * 1.7), 8.0);
       float post = f.w * f.y * step(dy, 0.0) * exp(dy * 0.5);
       ground += lines * 0.35;
       hint += post * 0.8;
-      add += uEdge * lines * 1.4 + uHigh * post * 0.5;
+      add += uEdge * lines * (1.4 + 2.6 * pulse) + uHigh * post * 0.5;
     #elif defined(DECOR_GARDEN)
-      // le gravier ratissé : des sillons concentriques autour de chaque pierre
-      float rake = 0.5 + 0.5 * sin(length(gLp) * 5.4 + 1.5);
+      // Le jardin sec : le gravier est ratissé en sillons concentriques autour de chaque pierre, en lignes
+      // droites dans les allées, et la mousse couvre le dessus des pierres.
+      float d = length(gLp);
+      float rake = mix(0.5 + 0.5 * sin(p.x * 2.6), 0.5 + 0.5 * sin(d * 5.4 + 1.5), smoothstep(8.5, 5.5, d));
       ground *= 0.6 + 0.9 * rake;
-      add += uEdge * pow(rake, 8.0) * exp(-(p.y - FLOOR) * 2.4) * 0.5;
+      float moss = exp(-abs(dy) * 6.0) * f.y * smoothstep(0.25, 0.7, kH);
+      add += uEdge * pow(rake, 8.0) * exp(-(p.y - FLOOR) * 2.4) * 0.5 + uHigh * moss * 0.35;
     #else
-      ground *= 0.45 + 1.2 * (1.0 - kH);                                   // la brume s'amasse dans les creux
+      // Les vallées : la brume s'amasse dans les creux, et le soleil couchant la raie de longues lames de lumière.
+      ground *= 0.45 + 1.2 * (1.0 - kH);
+      float ray = pow(0.5 + 0.5 * sin(dot(p.xz, vec2(0.8, -0.6)) * 0.85 + uTime * 0.06), 3.0);
+      add += uHigh * ray * (0.25 + 0.55 * (1.0 - kH)) * (1.0 - smoothstep(1.2, 3.2, p.y - FLOOR)) * 0.45;
     #endif
 
     float dens = (body * (0.3 + 0.8 * n) + hint + ground) * (1.0 - smoothstep(D_NEAR, D_FAR, dist));   // distance de vue, sans coupure
