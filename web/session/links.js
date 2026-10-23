@@ -4,8 +4,7 @@ import * as Net from '../net.js';
 import { wireMoves } from './history.js';
 import { S, cfg, play } from './store.js';
 import { installGame, saveGame, enterGame } from './game.js';
-import { toast } from '../ui/hud.js';
-import { syncMenuChoices, updateMenuButtons } from '../ui/menu.js';
+import * as V from './view.js';
 
 const pageUrl = () => location.origin + location.pathname + location.search;
 // adresse qui contient toute la partie en cours (monde et coups joués)
@@ -20,15 +19,14 @@ export function readLink() {
   if (room) return Net.CODE_RE.test(room) ? { room } : null;
   let d, r = null;
   try { d = G.decodeMatch(g); r = G.replay(d.seed, d.terrain, d.moves); } catch {}
-  if (!r) { toast('Lien de partie invalide.'); return null; }
+  if (!r) { V.toast('Lien de partie invalide.'); return null; }
   Object.assign(play, { mode: 'pvp', side: 0, level: cfg.level });
   Object.assign(cfg, { mode: 'pvp', where: 'local', terrain: d.terrain });
-  syncMenuChoices();
+  V.emit('menu');
   installGame(d.seed, d.terrain, r);
   saveGame();
-  updateMenuButtons();
   enterGame();
   const n = d.moves.length;
-  toast(r.state.over ? 'Partie terminée chargée depuis le lien.' : `Partie chargée depuis le lien : ${n} coup${n > 1 ? 's' : ''} joué${n > 1 ? 's' : ''}.`);
+  V.toast(r.state.over ? 'Partie terminée chargée depuis le lien.' : `Partie chargée depuis le lien : ${n} coup${n > 1 ? 's' : ''} joué${n > 1 ? 's' : ''}.`);
   return { game: true };
 }

@@ -5,7 +5,7 @@ import { ON_BOARD, idx } from '../../core/index.js';
 import { scene, gfx, topY, cellXZ } from './context.js';
 import { tween } from './tween.js';
 import { radialTexture } from './textures.js';
-import { TEAM } from '../ui/colors.js';
+import { TEAM } from '../colors.js';
 
 function vanguardGeometry() {
   const r = 0.4, H = 0.5, t = 0.27, b = 0.06;

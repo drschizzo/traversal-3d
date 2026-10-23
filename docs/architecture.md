@@ -13,9 +13,13 @@ web/       le jeu (Vite)
   coach/     explication et jugement des coups, progression                    pur · testé
   render/    scène 3D (Three.js) : plateau, pièces, décor, effets, caméra, boucle de rendu
   session/   déroulement d'une partie : état, phases, modes, tours, en ligne, lecture, analyse
+    view.js    ce que la session annonce à l'interface (le seul lien entre les deux)   pur · testé
+    scope.js   portées des calculs : un AbortSignal par partie, par analyse, par variante   pur · testé
   ui/        interface HTML : HUD, menu, panneaux, saisie, mise en page des explications
+    bindings.js ce que l'interface fait de chaque annonce (abonnements, en un seul endroit)
   i18n/      textes du jeu (le cœur ne produit que des codes)
   styles/    feuilles de style, une par zone de l'interface
+  colors.js  couleurs des camps, partagées par la scène 3D et l'interface
   storage.js données gardées dans le navigateur (noms, formats, validation)
   config.js  réglages liés à l'hébergement (serveur des salons, guide)
   main.js    point d'entrée : assemble le tout et démarre
@@ -27,8 +31,9 @@ tests/     tests unitaires (Vitest) · e2e/ tests dans un navigateur (Playwright
 ```
 core  ←  engine (même règles, en Rust, vérifiées par tests/parity.test.js)
 core  ←  server
-core  ←  web/coach, web/bot  ←  web/session  ←→  web/ui
+core  ←  web/coach, web/bot  ←  web/session  ←  web/ui
                      web/render  ←  web/session, web/ui
+                     web/session  ──annonces──→  web/ui
 ```
 
 - `core/` ne dépend de rien et ne contient aucun texte ni accès au navigateur : il tourne aussi bien dans la page,
@@ -37,9 +42,13 @@ core  ←  web/coach, web/bot  ←  web/session  ←→  web/ui
   (façade `render/index.js`).
 - `web/coach/` est pur : il renvoie des données (raisons, verdicts, notes) ; `web/ui/coach-view.js` et
   `review-view.js` les mettent en page. Le texte enrichi se limite à `**gras**`, converti par `ui/html.js`.
-- `web/session/` et `web/ui/` s'appellent mutuellement (une action de l'interface lance un tour, un tour met
-  l'interface à jour). Les modules n'exécutent rien à leur chargement : chacun expose une fonction `init…()`
-  appelée par `main.js`, dans l'ordre.
+- `web/session/` n'importe aucun module de `web/ui/` : le sens est à sens unique. L'interface appelle la session
+  (une action du joueur lance un tour) ; la session, elle, **annonce** ce qui change (`session/view.js`) et
+  `ui/bindings.js` dit ce que l'interface en fait. Un module de session se charge donc sans DOM, et se teste en
+  s'abonnant à ses annonces. Les modules n'exécutent rien à leur chargement : chacun expose une fonction `init…()`
+  appelée par `main.js`, dans l'ordre — les abonnements d'abord.
+- L'état reste dans `S` (`session/store.js`) : une annonce dit *que* quelque chose a changé, et le module de `ui/`
+  qui l'écoute relit `S`. Elle ne transporte que ce qui n'est pas dans `S` (le texte d'un message, par exemple).
 
 ## La session de jeu
 
@@ -56,8 +65,19 @@ Ce que la partie attend tient en une phase : `idle`, `intro`, `human`, `bot`, `p
 `over`…) sont choisies par `nextTurn()` et peuvent suivre n'importe quelle phase ; les autres n'ont que quelques
 prédécesseurs, et une transition imprévue est signalée dans la console. `phase.busy()` dit si le joueur peut agir.
 
-Les calculs asynchrones sont rattachés à une portée (`session/bot.js`) : changer de partie, reprendre un coup ou
-naviguer annule les calculs du bot en cours (le Worker est relancé) et invalide les suites en attente.
+Les calculs asynchrones sont rattachés à une portée (`session/scope.js`, ouvertes par `session/bot.js`) :
+changer de partie, reprendre un coup ou naviguer annule les calculs du bot en cours (le Worker est relancé) et
+invalide les suites en attente. Un seul mécanisme, l'`AbortSignal` : on saisit la portée au début d'une suite
+asynchrone, puis on s'arrête si elle a été abandonnée.
+
+```js
+const { signal } = gameScope;   // portée du moment
+await R.animateMove(m, before);
+if (signal.aborted) return;     // la partie affichée a changé : plus rien à faire ici
+```
+
+Il y a trois portées : la partie affichée (`gameScope`), l'analyse de fin de partie (`reviewScope`) et, fille de
+la seconde, la variante rejouée sur le plateau — une portée fille tombe avec sa mère.
 
 ### Les modes : `session/modes.js`
 
@@ -106,6 +126,7 @@ version de ces deux modules.
 | un effet, une surface | `render/` (GLSL dans `render/glsl/`) |
 | une raison d'expliquer un coup | `coach/explain.js`, rattachée à un thème de `coach/topics.js` |
 | un message en ligne | `core/protocol.js` (et `PROTOCOL` si sa forme change), `server/room.js`, `session/online.js` |
+| quelque chose à afficher depuis la session | une annonce dans `session/view.js`, son abonnement dans `ui/bindings.js` |
 | une donnée gardée | une entrée dans `web/storage.js` |
 | un niveau du bot | `web/bot/levels.js` |
 
@@ -115,7 +136,7 @@ version de ces deux modules.
 |---|---|
 | `npm run lint` | erreurs probables (ESLint) |
 | `npm run typecheck` | types (JSDoc, TypeScript sans compilation) |
-| `npm test` | règles, parité avec Rust, liens, moteur WebAssembly, explications, client du bot, phases, salons |
+| `npm test` | règles, parité avec Rust, liens, moteur WebAssembly, explications, client du bot, phases, portées, annonces, salons |
 | `npm run e2e` | le jeu construit dans Chromium : bot contre bot, partie par lien et son analyse, partie en ligne |
 | `cargo test` (dans `engine/`) | interface WebAssembly du moteur |
 

@@ -3,17 +3,11 @@
 // en cours se termine.
 import * as G from '../../core/index.js';
 import { PLAYER_NAMES, rejectText, errorText } from '../i18n/fr.js';
-import * as R from '../render/index.js';
 import * as Net from '../net.js';
 import { S, cfg, play, phase, mode, isHuman, liveNow } from './store.js';
 import { installGame, enterGame, abandonGame } from './game.js';
 import { nextTurn, performMove } from './turns.js';
-import { $, shown } from '../ui/dom.js';
-import { setStatus, updateHUD, toast } from '../ui/hud.js';
-import { updateControls } from '../ui/controls.js';
-import { clearSelection } from '../ui/input.js';
-import { syncMenuChoices, updateMenuButtons, openMenu } from '../ui/menu.js';
-import { copyText } from '../ui/clipboard.js';
+import * as V from './view.js';
 
 let net = null, queue = [], result = null, opponentHere = false;
 let rematchAsked = false, rematchOffered = false;
@@ -40,14 +34,10 @@ function resync() {
   openRoom(code, token);
 }
 
-// « Créer le salon » ou « Rejoindre le salon » depuis le menu
-export async function startOnline(kind) {
+// « Créer le salon » (sans code) ou « Rejoindre le salon » (code validé par le menu)
+export async function startOnline(kind, code = '') {
   leaveRoom(false);
-  if (kind === 'join') {
-    const code = Net.normalizeCode($('joinCode').value);
-    if (!Net.CODE_RE.test(code)) { toast('Le code du salon fait six lettres.'); $('joinCode').focus(); return; }
-    return joinRoom(code);
-  }
+  if (kind === 'join') return joinRoom(code);
   lobbyIntent = 'create';
   showLobby('Nouveau salon', 'Création du salon…');
   try {
@@ -55,7 +45,7 @@ export async function startOnline(kind) {
     if (lobbyIntent === 'create') openRoom(d.code, d.token);
   } catch (e) {
     hideLobby();
-    toast(e.message);
+    V.toast(e.message);
   }
 }
 
@@ -68,8 +58,7 @@ function joinRoom(code) {
 
 export function joinFromLink(code) {
   Object.assign(cfg, { mode: 'pvp', where: 'join' });
-  $('joinCode').value = code;
-  syncMenuChoices();
+  V.emit('menu', code); // le menu affiche le code reçu dans son champ
   joinRoom(code);
 }
 
@@ -82,15 +71,11 @@ export function resumeOnline() {
 }
 
 function showLobby(title, text, code = '') {
-  $('lobbyTitle').textContent = title;
-  $('lobbyText').textContent = text;
-  $('lobbyCode').textContent = code;
-  $('btnLobbyCopy').classList.toggle('hidden', !code || lobbyIntent !== 'create');
-  $('lobby').classList.remove('hidden');
+  V.emit('lobby', { title, text, code, canCopy: !!code && lobbyIntent === 'create' });
 }
 function hideLobby() {
-  $('lobby').classList.add('hidden');
   lobbyIntent = null;
+  V.emit('lobby', null);
 }
 
 function onNet(msg) {
@@ -98,43 +83,43 @@ function onNet(msg) {
     case 'state': return applyNetState(msg);
     case 'move': queue.push(msg); return wakeTurn();
     case 'reject':
-      toast(rejectText(msg.code));
+      V.toast(rejectText(msg.code));
       if (phase.is('sending')) phase.to('human');
       return resync();
     case 'over': result = msg; return wakeTurn();
     case 'opponent':
       opponentHere = msg.status === 'joined';
       if (opponentHere && lobbyIntent === 'create') { hideLobby(); enterGame(); return; }
-      if (S.inGame && !liveNow().over) toast(opponentHere ? 'Votre adversaire est connecté.' : 'Votre adversaire s’est déconnecté.');
+      if (S.inGame && !liveNow().over) V.toast(opponentHere ? 'Votre adversaire est connecté.' : 'Votre adversaire s’est déconnecté.');
       return wakeTurn();
     case 'rematch':
       rematchOffered = true;
-      updateRematchButton();
-      toast('Votre adversaire propose une revanche.');
+      V.emit('rematch');
+      V.toast('Votre adversaire propose une revanche.');
       return;
     case 'error': {
       const quiet = lobbyIntent === 'resume';
       hideLobby();
       leaveRoom(false);
-      if (!quiet) toast(errorText(msg.code));
+      if (!quiet) V.toast(errorText(msg.code));
     }
   }
 }
 
 function onNetStatus(status, code) {
   const playing = S.inGame && mode().remote;
-  if (status === 'reconnecting' && playing) setStatus('Connexion perdue — reconnexion…', liveNow().turn, true);
+  if (status === 'reconnecting' && playing) V.status('Connexion perdue — reconnexion…', liveNow().turn, true);
   if (status !== 'closed') return;
   net = null;
   hideLobby();
-  if (code === G.CLOSE.REPLACED) toast('La partie a été ouverte dans un autre onglet.');
-  else { Net.saveSession(null); if (code === G.CLOSE.EXPIRED) toast('Le salon a expiré.'); }
-  if (playing && !liveNow().over) { abandonGame(); openMenu(); }
+  if (code === G.CLOSE.REPLACED) V.toast('La partie a été ouverte dans un autre onglet.');
+  else { Net.saveSession(null); if (code === G.CLOSE.EXPIRED) V.toast('Le salon a expiré.'); }
+  if (playing && !liveNow().over) { abandonGame(); V.emit('openMenu'); }
 }
 
 // relance le tour si rien n'est en cours : partie affichée, pas d'animation, et pas de coup en préparation
 function wakeTurn() {
-  if (mode().remote && S.inGame && !phase.is('animating') && (!phase.busy() || phase.is('sending')) && shown('hud')) nextTurn();
+  if (mode().remote && S.inGame && !phase.is('animating') && (!phase.busy() || phase.is('sending')) && S.onScreen) nextTurn();
 }
 
 function applyNetState(msg) {
@@ -144,7 +129,7 @@ function applyNetState(msg) {
   rematchAsked = !!msg.rematch?.[msg.you];
   rematchOffered = !!msg.rematch?.[1 - msg.you];
   const r = G.replay(msg.seed, msg.terrain, msg.moves);
-  if (!r) { toast('Partie illisible.'); hideLobby(); leaveRoom(false); return; }
+  if (!r) { V.toast('Partie illisible.'); hideLobby(); leaveRoom(false); return; }
   const n = S.movesLog.length, mv = msg.moves;
   const same = mode().remote && S.inGame && S.worldSeed === msg.seed && S.worldTerrain === msg.terrain && play.side === msg.you
     && n <= mv.length && S.movesLog.every(({ move: m }, k) => G.sameWire(m, mv[k]));
@@ -152,21 +137,20 @@ function applyNetState(msg) {
     // reconnexion : les coups manqués seront joués dans l'ordre ; un coup envoyé resté sans réponse est à rejouer
     queue = mv.slice(n).map((m, k) => ({ ply: n + k, ...m }));
     if (phase.is('sending')) phase.to('human');
-    if (!phase.is('animating') && shown('hud')) nextTurn();
+    if (!phase.is('animating') && S.onScreen) nextTurn();
     return;
   }
   const intent = lobbyIntent;
   if (intent === 'resume' && (r.state.over || msg.result)) { lobbyIntent = null; leaveRoom(false); return; } // rien à reprendre
   Object.assign(play, { mode: 'online', side: msg.you, level: cfg.level });
   Object.assign(cfg, { mode: 'pvp', where: cfg.where === 'join' ? 'join' : 'create', side: msg.you });
-  syncMenuChoices();
+  V.emit('menu');
   queue = [];
-  $('over').classList.add('hidden');
+  V.emit('over', false);
   installGame(msg.seed, msg.terrain, r);
-  updateMenuButtons();
   if (intent === 'resume') {
     lobbyIntent = null;
-    toast('Une partie en ligne est en cours : « Reprendre la partie » pour y revenir.');
+    V.toast('Une partie en ligne est en cours : « Reprendre la partie » pour y revenir.');
     return;
   }
   if (intent === 'create' && !msg.opponent && !mv.length) {
@@ -195,47 +179,40 @@ export function onlineTurn() {
   if (result && !s.over) S.state = G.withResult(s, result);
   if (S.state.over || isHuman(S.state.turn)) return false;
   phase.to('remote');
-  updateHUD();
-  updateControls();
-  setStatus(opponentHere ? `À votre adversaire de jouer (${PLAYER_NAMES[S.state.turn]})…` : 'Votre adversaire est déconnecté : en attente de son retour…', S.state.turn, opponentHere);
+  V.refresh();
+  V.status(opponentHere ? `À votre adversaire de jouer (${PLAYER_NAMES[S.state.turn]})…` : 'Votre adversaire est déconnecté : en attente de son retour…', S.state.turn, opponentHere);
   return true;
 }
 
 export function sendMove(m) {
   if (phase.is('sending')) return;
   const s = S.state;
-  if (!net?.send({ type: 'move', ply: s.ply, ...G.toWire(m) })) { toast('Connexion perdue : coup non envoyé.'); return; }
+  if (!net?.send({ type: 'move', ply: s.ply, ...G.toWire(m) })) { V.toast('Connexion perdue : coup non envoyé.'); return; }
   phase.to('sending');
-  clearSelection();
-  setStatus('Coup envoyé…', s.turn, true);
-  updateControls();
+  V.clearSelection();
+  V.status('Coup envoyé…', s.turn, true);
+  V.refresh();
 }
 
 export function proposeRematch() {
-  if (!net) return toast('Le salon est fermé.');
+  if (!net) return V.toast('Le salon est fermé.');
   net.send({ type: 'rematch' });
   rematchAsked = true;
-  updateRematchButton();
-}
-export function updateRematchButton() {
-  const b = $('btnAgain'), online = mode().remote;
-  b.textContent = !online ? 'Rejouer' : rematchAsked ? 'Revanche proposée…' : rematchOffered ? 'Accepter la revanche' : 'Proposer une revanche';
-  b.disabled = online && (rematchAsked || !net);
+  V.emit('rematch');
 }
 
-export function initOnline() {
-  $('btnLobbyCopy').onclick = () => {
-    if (!net) return;
-    const url = Net.inviteLink(net.code);
-    if (navigator.share && R.compactMQ.matches) navigator.share({ title: 'Traversal', text: 'Une partie de Traversal ?', url }).catch(() => {});
-    else copyText(url, 'Lien d’invitation copié : envoyez-le à votre adversaire.');
-  };
-  $('btnLobbyCancel').onclick = () => {
-    hideLobby();
-    leaveRoom(false);
-    if (S.inGame && mode().remote) abandonGame();
-  };
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) net?.wake(); });
-  $('joinCode').addEventListener('input', e => { const el = /** @type {HTMLInputElement} */ (e.target); el.value = Net.normalizeCode(el.value); });
-  $('joinCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('btnStart').click(); });
+/** Où en est la revanche, pour le bouton de la fenêtre de fin (ui/game-over.js). */
+export const rematchState = () => ({ online: mode().remote, asked: rematchAsked, offered: rematchOffered, open: !!net });
+
+/** Lien d'invitation au salon ouvert, ou null (bouton « Copier » de la fenêtre du salon). */
+export const inviteUrl = () => (net ? Net.inviteLink(net.code) : null);
+
+/** « Annuler » dans la fenêtre du salon : on referme et on quitte le salon. */
+export function cancelLobby() {
+  hideLobby();
+  leaveRoom(false);
+  if (S.inGame && mode().remote) abandonGame();
 }
+
+/** Retour de la page au premier plan : la socket tombée est rouverte sans attendre. */
+export const wakeNet = () => net?.wake();

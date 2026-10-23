@@ -8,18 +8,13 @@ import { load, save } from '../storage.js';
 import { MODES } from './modes.js';
 import { wireMoves } from './history.js';
 import { S, cfg, play, phase, mode, isHuman, gameActive } from './store.js';
-import { bumpGame, tokens } from './bot.js';
+import { bumpGame, gameScope } from './bot.js';
 import { nextTurn } from './turns.js';
 import { resetCoaching } from './training.js';
 import { clearHint } from './hint.js';
 import { closeReview } from './review.js';
 import { leaveRoom } from './online.js';
-import { $ } from '../ui/dom.js';
-import { setNames, setStatus, layoutHud, setTools } from '../ui/hud.js';
-import { updateControls } from '../ui/controls.js';
-import { setCoach, clearPlan } from '../ui/coach-panel.js';
-import { clearSelection } from '../ui/input.js';
-import { updateMenuButtons, syncMenuChoices, updateMenuShift } from '../ui/menu.js';
+import * as V from './view.js';
 
 // affiche un monde ; s : position à afficher (partie restaurée), sinon position de départ
 function loadWorld(seed = G.randomSeed(), terrain = cfg.terrain, s = null) {
@@ -28,10 +23,8 @@ function loadWorld(seed = G.randomSeed(), terrain = cfg.terrain, s = null) {
   const h = s ? s.h : G.generateTerrain(terrain, seed);
   S.state = s || G.newGame(h);
   R.showWorld(h, terrain, S.state);
-  const terrainName = TERRAIN_NAMES[terrain];
-  S.worldLabel = `Monde n° ${seed.toLocaleString('fr-FR')} · ${terrainName}`;
-  $('menuWorld').textContent = `Monde n° ${seed.toLocaleString('fr-FR')}`;
-  $('menuTerrain').textContent = terrainName;
+  S.worldLabel = `Monde n° ${seed.toLocaleString('fr-FR')} · ${TERRAIN_NAMES[terrain]}`;
+  V.emit('menu');
 }
 
 // nouveau monde tiré au hasard (menu)
@@ -65,7 +58,7 @@ export function restoreGame() {
   if (r.state.over) return false;
   Object.assign(play, d.play);
   Object.assign(cfg, play, { terrain: d.terrain, where: 'local' });
-  syncMenuChoices();
+  V.emit('menu');
   installGame(d.seed >>> 0, d.terrain, r);
   return true;
 }
@@ -83,15 +76,15 @@ function resetMatch() {
   S.analyses.clear();
   resetCoaching();
   clearHint();
-  clearSelection();
-  clearPlan();
+  V.clearSelection();
+  V.clearPlan();
 }
 
 function beginMatch() {
   S.inGame = true;
-  setNames();
-  setCoach(mode().analyzeAll);
-  updateControls();
+  V.emit('names');
+  V.emit('coachOpen', mode().analyzeAll);
+  V.refresh();
 }
 
 // installe une partie rejouée (replay de core/) sur son monde, avec les réglages de play
@@ -123,18 +116,16 @@ export function startGame() {
 
 // quitte le menu pour la partie : HUD, caméra du côté du joueur, puis premier tour
 export function enterGame(delay = R.rising() ? 1900 : 900) {
-  $('menu').classList.add('hidden');
-  updateMenuShift();
-  $('hud').classList.remove('hidden');
-  layoutHud();
+  S.onScreen = true;
+  V.emit('enter');
   R.autoRotate(false);
   S.viewSide = mode().seated ? play.side : 0;
   R.panTo(0, 0, 0.8);
   R.turnCameraTo(S.viewSide, 1.4);
   phase.to('intro');
-  setStatus(R.rising() ? 'Matérialisation du monde…' : 'La partie commence…', 0);
-  const token = tokens.game;
-  R.wait(delay).then(() => { if (token === tokens.game) nextTurn(); });
+  V.status(R.rising() ? 'Matérialisation du monde…' : 'La partie commence…', 0);
+  const { signal } = gameScope;
+  R.wait(delay).then(() => { if (!signal.aborted) nextTurn(); });
 }
 
 // abandon de la partie en cours (retour au menu, nouvelle partie, salon quitté)
@@ -150,10 +141,10 @@ export function abandonGame() {
   S.movesLog = [];
   saveGame();
   clearHint();
-  clearSelection();
-  clearPlan();
-  setTools(false);
-  $('hud').classList.add('hidden');
+  V.clearSelection();
+  V.clearPlan();
+  S.onScreen = false;
+  V.emit('leave');
   R.autoRotate(true);
-  updateMenuButtons();
+  V.emit('menu');
 }

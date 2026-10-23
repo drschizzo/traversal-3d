@@ -1,7 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MODES, isHuman, judgedSides, viewerSide } from '../web/session/modes.js';
 import { createPhase, canGo, PHASES } from '../web/session/phase.js';
 import { undoPoint, clampPly, wireMoves } from '../web/session/history.js';
+import { createScope } from '../web/session/scope.js';
+import * as V from '../web/session/view.js';
 import { addGame, progressStats, PROGRESS_MAX } from '../web/coach/progress.js';
 
 describe('modes de jeu', () => {
@@ -88,5 +90,69 @@ describe('progression', () => {
     const list = [...Array(5).fill({ acc: 60, themes: {} }), ...Array(5).fill({ acc: 80, themes: { race: 2 } })];
     expect(progressStats(list)).toEqual({ games: 10, n: 5, acc: 80, prev: 60, theme: 'race' });
     expect(progressStats([])).toBeNull();
+  });
+});
+
+describe('portées des calculs', () => {
+  it('abandonne ce qui a été lancé avant, et pas ce qui l’est après', () => {
+    const scope = createScope();
+    const avant = scope.signal;
+    expect(avant.aborted).toBe(false);
+    scope.bump();
+    expect(avant.aborted).toBe(true);     // la suite saisie avant s'arrête
+    expect(scope.signal.aborted).toBe(false); // une nouvelle portée est ouverte
+    expect(scope.aborted).toBe(false);
+  });
+  it('une portée fille tombe avec sa mère, jamais l’inverse', () => {
+    const mere = createScope(), fille = mere.child();
+    const sienne = fille.signal, celleDeLaMere = mere.signal;
+    fille.bump();
+    expect(sienne.aborted).toBe(true);
+    expect(celleDeLaMere.aborted).toBe(false); // la mère continue
+    const encore = fille.signal;
+    mere.bump();
+    expect(encore.aborted).toBe(true);
+    expect(fille.signal.aborted).toBe(false);
+  });
+});
+
+describe('annonces à l’interface', () => {
+  beforeEach(() => V.reset());
+  it('porte l’annonce à ses abonnés, et seulement à eux', () => {
+    const statut = vi.fn(), autre = vi.fn();
+    V.on('status', statut);
+    V.on('toast', autre);
+    V.status('À vous de jouer', 1, true);
+    expect(statut).toHaveBeenCalledWith({ text: 'À vous de jouer', side: 1, thinking: true });
+    expect(autre).not.toHaveBeenCalled();
+  });
+  it('sans abonné, la session tourne quand même', () => {
+    expect(() => { V.refresh(); V.emit('over'); }).not.toThrow();
+  });
+  it('un abonné en échec n’empêche pas les autres', () => {
+    const erreur = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const suivant = vi.fn();
+    V.on('refresh', () => { throw new Error('panneau cassé'); });
+    V.on('refresh', suivant);
+    V.refresh();
+    expect(suivant).toHaveBeenCalled();
+    expect(erreur).toHaveBeenCalled();
+    erreur.mockRestore();
+  });
+  it('se désabonne', () => {
+    const fn = vi.fn();
+    V.on('toast', fn)();
+    V.toast('bonjour');
+    expect(fn).not.toHaveBeenCalled();
+  });
+  it('effacer la sélection et le tracé passent par la même annonce qu’afficher', () => {
+    const select = vi.fn(), plan = vi.fn();
+    V.on('select', select);
+    V.on('plan', plan);
+    V.clearSelection();
+    V.clearPlan();
+    V.showPlan([{ move: 'm' }]);
+    expect(select).toHaveBeenCalledWith(-1);
+    expect(plan.mock.calls).toEqual([[null], [[{ move: 'm' }]]]);
   });
 });

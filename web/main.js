@@ -7,28 +7,32 @@
 //   coach/    explication et jugement des coups, progression (pur)
 //   session/  déroulement d'une partie : état (store.js), phases, modes, tours, en ligne, analyse
 //   ui/       interface HTML : HUD, menu, panneaux, saisie
+//
+// La session ne connaît pas l'interface : elle annonce ce qui change (session/view.js) et ui/bindings.js dit
+// ce que l'interface en fait. Les abonnements sont posés ici, avant que quoi que ce soit ne commence.
 import * as R from './render/index.js';
 import { load } from './storage.js';
 import { readLink } from './session/links.js';
 import { restoreGame, previewTerrain } from './session/game.js';
-import { joinFromLink, resumeOnline, initOnline } from './session/online.js';
-import { initPlayback } from './session/playback.js';
+import { joinFromLink, resumeOnline, wakeNet } from './session/online.js';
 import { warmUpBot } from './session/bot.js';
-import { initReview } from './session/review.js';
+import { initBindings } from './ui/bindings.js';
 import { initHud, layoutHud } from './ui/hud.js';
-import { initMenu, updateMenuButtons, showModeOptions, updateMenuShift } from './ui/menu.js';
+import { initMenu, syncMenu, updateMenuShift } from './ui/menu.js';
+import { initControls } from './ui/controls.js';
 import { initInput } from './ui/input.js';
 import { initCoachPanel, renderCoach } from './ui/coach-panel.js';
+import { initLobby } from './ui/lobby.js';
 
 R.applyTheme(load('theme'));
 
+initBindings();
 initHud({ onCompactChange: () => { renderCoach(); updateMenuShift(false); } });
 initMenu();
+initControls();
 initInput();
 initCoachPanel();
-initPlayback();
-initOnline();
-initReview();
+initLobby();
 
 addEventListener('resize', () => {
   R.resize();
@@ -37,12 +41,13 @@ addEventListener('resize', () => {
 });
 // un lien de partie ou d'invitation ouvert dans l'onglet du jeu : la page repart de ce lien
 addEventListener('hashchange', () => { if (location.hash.length > 1) location.reload(); });
+// retour de la page au premier plan (mobile) : la connexion au salon est rétablie sans attendre
+document.addEventListener('visibilitychange', () => { if (!document.hidden) wakeNet(); });
 
 R.startRendering();
 const link = readLink();
 if (!link?.game && (link?.room || !restoreGame())) previewTerrain();
-updateMenuButtons();
-showModeOptions(); // les options en ligne ne s'affichent qu'en mode « à deux »
+syncMenu(); // boutons, monde affiché, progression ; les options en ligne n'apparaissent qu'en mode « à deux »
 updateMenuShift(false);
 // invitation dans l'adresse : on rejoint le salon ; sinon, reprise de la partie en ligne en cours
 if (link?.room) joinFromLink(link.room);

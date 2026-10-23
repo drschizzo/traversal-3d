@@ -2,28 +2,28 @@
 import * as R from '../render/index.js';
 import { explain } from '../coach/explain.js';
 import { S, phase, isHuman, coachCtx } from './store.js';
-import { analysisFor, tokens } from './bot.js';
-import { $ } from '../ui/dom.js';
-import { updateControls } from '../ui/controls.js';
-import { setCoach, renderCoach } from '../ui/coach-panel.js';
-import { select } from '../ui/input.js';
+import { analysisFor, gameScope } from './bot.js';
+import * as V from './view.js';
 
 export async function hint() {
   const s = S.state;
   if (!s || s.over || !isHuman(s.turn) || !phase.is('human', 'coach') || S.hintPending) return;
   if (S.hintData && S.hintLevel > 0) return revealHint(Math.min(3, S.hintLevel + 1));
   S.hintPending = true;
-  updateControls();
+  S.hintFailed = false;
+  V.refresh();
   const wasOpen = S.coachOn;
-  setCoach(true);
+  V.emit('coachOpen', true); // le panneau montre l'attente, puis le conseil
   S.coachForHint = !wasOpen;
-  $('coach').innerHTML = '<div class="coach-wait"><span class="spinner"></span> Le bot analyse la position…</div>';
-  const token = tokens.game;
+  const { signal } = gameScope;
   const { move, info } = await analysisFor(s);
   S.hintPending = false;
-  updateControls();
-  if (token !== tokens.game || S.state !== s) { renderCoach(); return; }
-  if (!move || !info) { $('coach').innerHTML = '<p class="muted">Analyse indisponible.</p>'; return; }
+  V.refresh();
+  if (signal.aborted || S.state !== s) return void V.emit('coach');
+  if (!move || !info) {
+    S.hintFailed = true;
+    return void V.emit('coach');
+  }
   S.hintData = explain(s, move, info, { ctx: coachCtx(s.turn) });
   revealHint(1);
 }
@@ -31,23 +31,24 @@ export async function hint() {
 export function revealHint(level) {
   if (!S.hintData || S.state.over || !isHuman(S.state.turn)) return;
   S.hintLevel = level;
-  if (level === 2) select(S.hintData.move.pi);
+  if (level === 2) V.emit('select', S.hintData.move.pi);
   if (level === 3) showHint(S.hintData.move);
-  if (!S.coachOn) { setCoach(true); S.coachForHint = true; }
-  renderCoach();
-  updateControls();
+  if (!S.coachOn) { V.emit('coachOpen', true); S.coachForHint = true; }
+  V.emit('coach');
+  V.refresh();
 }
 
 // coup conseillé : la pièce est sélectionnée, sa case d'arrivée cerclée d'or
 function showHint(m) {
   S.hintMove = m;
-  select(m.pi);
+  V.emit('select', m.pi);
   R.showHint(m);
 }
 export function clearHint() {
   S.hintMove = null;
   S.hintLevel = 0;
   S.hintData = null;
+  S.hintFailed = false;
   S.pinnedMove = null;
   R.showHint(null);
 }

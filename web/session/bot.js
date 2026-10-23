@@ -1,20 +1,24 @@
 // Le bot vu de la partie : demandes de coups et d'analyses, abandonnées quand la partie affichée change.
 //
-// Portées des calculs : tout calcul lancé pour la partie affichée est abandonné quand elle change (nouvelle partie,
-// coup repris, navigation…), et ceux de l'analyse de partie quand on la referme. Les jetons (game, review)
-// servent aux suites asynchrones qui ne passent pas par le bot (animations, attentes).
+// Portées des calculs (scope.js) : tout ce qui est lancé pour la partie affichée est abandonné quand elle change
+// (nouvelle partie, coup repris, navigation…), et ce qui l'est pour l'analyse de partie quand on la referme.
+// Le même signal sert aux demandes au bot et aux suites asynchrones qui n'y passent pas (animations, attentes) :
+//   const { signal } = gameScope;  …  await …;  if (signal.aborted) return;
 import { createBot, PRIORITY, isAbort } from '../bot/client.js';
 import { coachLevel } from '../bot/levels.js';
+import { createScope } from './scope.js';
 import { S, play, mode } from './store.js';
 
 const bot = createBot();
 // moteur chargé dès que la page est au repos : premier coup du bot plus rapide, et moteur gardé pour le jeu hors ligne
 export const warmUpBot = () => (window.requestIdleCallback || setTimeout)(() => bot.warmUp());
-export const tokens = { game: 0, review: 0 };
-let gameScope = new AbortController(), reviewScope = new AbortController();
-export const gameSignal = () => gameScope.signal;
-export function bumpGame() { tokens.game++; gameScope.abort(); gameScope = new AbortController(); }
-export function bumpReview() { tokens.review++; reviewScope.abort(); reviewScope = new AbortController(); }
+
+/** portée de la partie affichée */
+export const gameScope = createScope();
+/** portée de l'analyse de fin de partie */
+export const reviewScope = createScope();
+export const bumpGame = () => gameScope.bump();
+export const bumpReview = () => reviewScope.bump();
 
 /**
  * Demande un coup au bot ; avec analyze, la réponse contient aussi info (évaluation, variante, alternatives).

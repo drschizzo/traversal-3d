@@ -4,10 +4,19 @@ import { PLAYER_NAMES, TYPE_GLYPHS, endReason } from '../i18n/fr.js';
 import { isError } from '../coach/review.js';
 import { S, play, phase, mode } from '../session/store.js';
 import { recordProgress } from '../session/review.js';
-import { updateRematchButton } from '../session/online.js';
+import { rematchState } from '../session/online.js';
 import { $ } from './dom.js';
 import { setStatus } from './hud.js';
-import { TEAM } from './colors.js';
+import { TEAM } from '../colors.js';
+
+/** Bouton « Rejouer » / « Proposer une revanche », selon le mode et ce que l'adversaire a demandé. */
+export function updateRematchButton() {
+  const b = $('btnAgain'), { online, asked, offered, open } = rematchState();
+  b.textContent = !online ? 'Rejouer' : asked ? 'Revanche proposée…' : offered ? 'Accepter la revanche' : 'Proposer une revanche';
+  b.disabled = online && (asked || !open);
+}
+
+export const hideGameOver = () => $('over').classList.add('hidden');
 
 export function showGameOver() {
   if (phase.is('review', 'puzzle') || S.viewPly !== null) return;

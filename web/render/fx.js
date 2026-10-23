@@ -4,7 +4,7 @@ import { STR } from '../../core/index.js';
 import { scene, camera, gfx, LEVEL, topY, cellXZ, exitZ } from './context.js';
 import { tween, easeIO, wait } from './tween.js';
 import { pieceObject, setPieceOpacity } from './pieces.js';
-import { TEAM, GOLD } from '../ui/colors.js';
+import { TEAM, GOLD } from '../colors.js';
 
 function hop(obj, from, to, arc, dur) {
   return tween(dur, k => {

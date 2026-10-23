@@ -7,7 +7,7 @@ import { scene, gfx, LEVEL, topY, cellXZ, FLOOR_Y } from './context.js';
 import { withSurface, surfaceId } from './surfaces.js';
 import { mistColor, mistAmount } from './background.js';
 import { numberTexture } from './textures.js';
-import { TEAM } from '../ui/colors.js';
+import { TEAM } from '../colors.js';
 
 const terrainSurface = { uSurface: { value: 0 } };
 const plinthSurface = { uSurface: { value: 0 }, uGlowAmt: { value: 0 }, uMistAmt: mistAmount, uMistCol: { value: mistColor } };

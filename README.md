@@ -241,7 +241,7 @@ python3 analysis/analyze.py parties.jsonl                                       
 | Dossier | Rôle |
 |---|---|
 | `core/` | Règles du jeu, terrain, coups, liens de partie, protocole en ligne : pur, partagé par le jeu, le serveur et les tests |
-| `web/` | Le jeu : `render/` (scène 3D), `session/` (déroulement d'une partie), `ui/` (interface), `coach/` (explications), `bot/` (client du moteur), `i18n/`, `styles/` |
+| `web/` | Le jeu : `render/` (scène 3D), `session/` (déroulement d'une partie), `ui/` (interface), `coach/` (explications), `bot/` (client du moteur), `i18n/`, `styles/` — la session annonce ce qui change, l'interface l'affiche ([architecture](docs/architecture.md)) |
 | `engine/` | Moteur du bot en Rust (règles, recherche, évaluation), banc d'essai et analyses statistiques |
 | `server/` | Worker Cloudflare : salons en ligne (`room.js`) et Durable Object (`worker.js`), configuration `wrangler.jsonc` |
 | `tests/`, `e2e/` | Tests unitaires (Vitest) et parcours dans un navigateur (Playwright) |

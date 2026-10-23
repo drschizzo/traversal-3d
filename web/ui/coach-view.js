@@ -3,7 +3,7 @@ import { PLAYER_NAMES } from '../i18n/fr.js';
 import { TOPICS, guideUrl } from '../coach/topics.js';
 import { pct, plural } from '../coach/wording.js';
 import { esc, rich } from './html.js';
-import { DOT } from './colors.js';
+import { DOT } from '../colors.js';
 
 // icône d'une raison : celle de son thème si elle est positive, un avertissement si elle est négative
 const reasonIcon = r => (r.tone === 'bad' ? '⚠️' : r.tone === 'info' ? '·' : TOPICS[r.theme].icon);

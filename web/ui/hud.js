@@ -5,7 +5,7 @@ import { TYPE_NAMES, TYPE_GLYPHS, TYPE_DESC, PLAYER_NAMES, LEVEL_NAMES } from '.
 import * as R from '../render/index.js';
 import { S, play, mode } from '../session/store.js';
 import { $, isTouch } from './dom.js';
-import { TEAM } from './colors.js';
+import { TEAM } from '../colors.js';
 import { load, save } from '../storage.js';
 
 export function setStatus(text, side, thinking = false) {

@@ -21,6 +21,7 @@ export const S = {
   movesLog: [],           // coups joués : { before, move, human, hint } (même longueur que history)
   worldSeed: 0, worldTerrain: 'random', worldLabel: '',
   inGame: false,          // une partie a été lancée (ou restaurée) sur le monde affiché et n'a pas été abandonnée
+  onScreen: false,        // l'écran de jeu est affiché (on est entré dans la partie, menu ou non par-dessus)
   // ---------------------------------------------------------------- bot contre bot
   paused: false,          // lecture en pause (après le coup en cours)
   stepOnce: false,        // en pause : un seul coup demandé
@@ -42,11 +43,15 @@ export const S = {
   analyses: new Map(),    // explication de chaque coup du bot, par ply (bot contre bot)
   planShown: false,       // suite prévue tracée sur le plateau
   hintLevel: 0,           // conseil en trois temps : 0 aucun, 1 piste, 2 pièce, 3 coup
-  hintData: null, hintMove: null, hintPending: false,
+  hintData: null, hintMove: null, hintPending: false, hintFailed: false,
   pinnedMove: null,       // coup cité gardé tracé sur le plateau
   // ---------------------------------------------------------------- entraînement et analyse de partie
   training: /** @type {boolean} */ (load('training')),
+  feedback: null,         // verdict du dernier coup du joueur, affiché sous le plateau (mode Entraînement)
+  feedbackOpen: false,    // son détail est déplié
   liveReviews: new Map(), // coups déjà jugés pendant la partie, par position
+  review: { items: [], sel: -1, final: null, failed: false }, // analyse de fin de partie : coups jugés,
+                          // moment choisi, position finale, moteur indisponible
   puzzle: null,           // exercice en cours (analyse de partie)
 };
 

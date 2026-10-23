@@ -22,7 +22,7 @@
 import * as THREE from 'three';
 import { TERRAINS, generateTerrain, randomSeed, cx, cy } from '../../core/index.js';
 import { renderer, scene, camera, gfx, HORIZON, HAZE_BAND, FLOOR_Y, fullScreenMesh } from './context.js';
-import { TEAM } from '../ui/colors.js';
+import { TEAM } from '../colors.js';
 import { noiseUniform } from './noise.js';
 import { withSurface, surfaceId } from './surfaces.js';
 import floorFrag from './glsl/floor.frag.glsl?raw';

@@ -1,6 +1,7 @@
-// Barre d'outils de la partie : boutons présents selon le mode, et activés selon ce que la partie attend
+// Barre d'outils de la partie : boutons présents selon le mode, activés selon ce que la partie attend,
+// et commandes de lecture (bot contre bot) câblées sur session/playback.js
 import { S, phase, mode, isHuman } from '../session/store.js';
-import { viewIndex, canNavigate } from '../session/playback.js';
+import { viewIndex, canNavigate, goTo, stepForward, togglePlay } from '../session/playback.js';
 import { $, icon } from './dom.js';
 import { layoutHud } from './hud.js';
 
@@ -31,4 +32,12 @@ export function updateControls() {
   $('btnHint').title = HINT_TITLES[S.hintLevel];
   if (s) $('btnUndo').disabled = !S.history.length;
   layoutHud();
+}
+
+export function initControls() {
+  $('btnFirst').onclick = () => goTo(0);
+  $('btnPrev').onclick = () => goTo(viewIndex() - 1);
+  $('btnLast').onclick = () => goTo(S.history.length);
+  $('btnNext').onclick = stepForward;
+  $('btnPlay').onclick = togglePlay;
 }

@@ -1,9 +1,12 @@
 // Menu : mode de jeu, couleur, niveau, monde (terrain, thème, qualité graphique), partie en cours,
 // confirmation d'abandon, et boutons de la partie qui ramènent au menu ou en sortent
-import { TERRAINS } from '../../core/index.js';
+import { TERRAINS, CODE_RE, normalizeCode } from '../../core/index.js';
 import { TERRAIN_NAMES } from '../i18n/fr.js';
+import { progressStats } from '../coach/progress.js';
+import { renderMenuProgress } from './review-view.js';
+import { startReview } from '../session/review.js';
 import * as R from '../render/index.js';
-import { save } from '../storage.js';
+import { load, save } from '../storage.js';
 import { S, cfg, mode, gameActive, gameAtStake } from '../session/store.js';
 import { startGame, enterGame, abandonGame, previewTerrain, resetBoard } from '../session/game.js';
 import { startOnline, proposeRematch } from '../session/online.js';
@@ -12,7 +15,7 @@ import { hint } from '../session/hint.js';
 import { toggleTraining } from '../session/training.js';
 import { matchLink } from '../session/links.js';
 import { $, shown } from './dom.js';
-import { autoFullscreen, toast } from './hud.js';
+import { autoFullscreen, toast, layoutHud, setTools } from './hud.js';
 import { copyText } from './clipboard.js';
 
 // ---------------------------------------------------------------- choix du menu
@@ -29,13 +32,27 @@ export function showModeOptions() {
   if (!gameActive()) $('btnStart').innerHTML = startLabel();
 }
 
-// reflète cfg dans les sélecteurs du menu (après restauration d'une partie)
-export function syncMenuChoices() {
+// reflète l'état de la session dans le menu : sélecteurs, monde affiché, boutons (annonce « menu »)
+export function syncMenu(joinCode = null) {
   document.querySelectorAll('.seg[data-key]').forEach(seg => {
     const key = /** @type {HTMLElement} */ (seg).dataset.key;
     if (key in cfg) seg.querySelectorAll('button').forEach(x => x.classList.toggle('sel', x.dataset.v === String(cfg[key])));
   });
+  if (joinCode) $('joinCode').value = joinCode;
+  if (S.worldTerrain) {
+    $('menuWorld').textContent = `Monde n° ${S.worldSeed.toLocaleString('fr-FR')}`;
+    $('menuTerrain').textContent = TERRAIN_NAMES[S.worldTerrain];
+  }
+  showProgress();
   showModeOptions();
+  updateMenuButtons();
+}
+
+// bilan des dernières parties analysées, sous les réglages du menu
+function showProgress() {
+  const p = progressStats(load('progress')), el = $('menuProgress');
+  el.classList.toggle('hidden', !p);
+  if (p) el.innerHTML = renderMenuProgress(p);
 }
 
 // partie en cours : « Reprendre » devient l'action principale, « Jouer » propose une nouvelle partie,
@@ -53,6 +70,20 @@ export function updateMenuButtons() {
   $('btnStart').classList.toggle('play', !active);
   $('btnStart').classList.toggle('ghost', active);
   $('btnStart').innerHTML = active ? 'Nouvelle partie' : startLabel();
+}
+
+// on entre dans la partie : le menu s'efface, l'écran de jeu s'affiche
+export function enterView() {
+  $('menu').classList.add('hidden');
+  updateMenuShift();
+  $('hud').classList.remove('hidden');
+  layoutHud();
+}
+
+// on quitte la partie : barre d'outils repliée, écran de jeu caché (le menu revient par openMenu)
+export function leaveView() {
+  setTools(false);
+  $('hud').classList.add('hidden');
 }
 
 export function openMenu() {
@@ -150,11 +181,19 @@ export function initMenu() {
     // partie en ligne quittée : on revient au menu, sans enchaîner aussitôt sur la création d'un salon
     if (wasOnline) {
       cfg.where = 'local';
-      syncMenuChoices();
-      updateMenuButtons();
+      syncMenu();
       return;
     }
-    if (cfg.mode === 'pvp' && cfg.where !== 'local') return startOnline(cfg.where);
+    if (cfg.mode === 'pvp' && cfg.where !== 'local') {
+      // le code du salon appartient au menu : il est validé ici avant d'ouvrir la connexion
+      if (cfg.where === 'join') {
+        const code = normalizeCode($('joinCode').value);
+        $('joinCode').value = code;
+        if (!CODE_RE.test(code)) { toast('Le code du salon fait six lettres.'); $('joinCode').focus(); return; }
+        return startOnline('join', code);
+      }
+      return startOnline('create');
+    }
     startGame();
   };
   $('btnCustomize').onclick = () => {
@@ -200,4 +239,5 @@ export function initMenu() {
   // retour au menu après la partie : le même monde, pièces au départ, prêt pour une revanche
   $('btnOverMenu').onclick = () => { $('over').classList.add('hidden'); abandonGame(); resetBoard(); openMenu(); };
   $('btnOverBoard').onclick = () => $('over').classList.add('hidden');
+  $('btnReview').onclick = startReview;
 }

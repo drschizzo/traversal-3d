@@ -6,7 +6,7 @@ import { GRADES, summary, isError } from '../coach/review.js';
 import { moveText, pct, plural } from '../coach/wording.js';
 import { ideaBox, reasonList, principleBox } from './coach-view.js';
 import { esc, rich } from './html.js';
-import { DOT } from './colors.js';
+import { DOT } from '../colors.js';
 
 // apparence de chaque catégorie de coup
 const GRADE_STYLE = {

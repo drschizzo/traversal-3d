@@ -23,7 +23,11 @@ export function renderCoach() {
   const el = $('coach');
   if (!S.coachOn) return;
   const reg = moveRegistry();
-  if (S.hintData && S.hintLevel > 0) {
+  if (S.hintPending) {
+    el.innerHTML = '<div class="coach-wait"><span class="spinner"></span> Le bot analyse la position…</div>';
+  } else if (S.hintFailed) {
+    el.innerHTML = '<p class="muted">Analyse indisponible.</p>';
+  } else if (S.hintData && S.hintLevel > 0) {
     el.innerHTML = renderHint(S.hintData, S.hintLevel, reg, { history: S.evalHistory });
     el.querySelectorAll('[data-hint]').forEach(b => { /** @type {HTMLElement} */ (b).onclick = () => revealHint(+(/** @type {HTMLElement} */ (b).dataset.hint)); });
     const playBtn = $('coachPlayHint');

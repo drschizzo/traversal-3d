@@ -5,7 +5,7 @@ import { scene, topY, cellXZ, exitZ } from './context.js';
 import { heights } from './board.js';
 import { pieceObject } from './pieces.js';
 import { TEX, numberTexture } from './textures.js';
-import { TEAM, GOLD } from '../ui/colors.js';
+import { TEAM, GOLD } from '../colors.js';
 
 const COLORS = { move: 0x6fdcff, attack: 0xff4a4a, exit: GOLD, hover: 0xffffff };
 const ownerOf = m => pieceObject(m.pi).o;
