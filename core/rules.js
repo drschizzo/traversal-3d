@@ -38,7 +38,8 @@ export function clone(s) {
 export function reach(s, pi) {
   const p = s.pieces[pi], mp = MOVE[p.t], H = s.h;
   const start = idx(p.x, p.y);
-  const dist = new Int8Array(NC).fill(99), prev = new Int8Array(NC).fill(-1);
+  // dist : points de Mouvement (≤ 5, 99 = hors d'atteinte) ; prev : indice de la case précédente, donc Int16
+  const dist = new Int8Array(NC).fill(99), prev = new Int16Array(NC).fill(-1);
   const buckets = Array.from({ length: mp + 1 }, () => []);
   dist[start] = 0; buckets[0].push(start);
   for (let c = 0; c <= mp; c++)

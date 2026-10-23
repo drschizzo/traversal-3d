@@ -175,9 +175,14 @@ export class Room extends DurableObject {
       // revanche acceptée : nouveau monde, couleurs échangées
       this.ctx.storage.sql.exec('DELETE FROM moves');
       this.persist(['seed', 'tokens', 'result', 'rematch']);
+      // présence de chaque camp lue avant l'échange : les places changent au fil de la boucle, et la question
+      // « l'adversaire est-il là ? » porte sur la même personne, donc sur sa place d'avant la revanche
+      const here = [this.sockets(0).length > 0, this.sockets(1).length > 0];
       for (const ws2 of this.ctx.getWebSockets()) {
         const side = ws2.deserializeAttachment()?.side;
-        if (side >= 0) { ws2.serializeAttachment({ side: 1 - side }); this.send(ws2, room.stateFor(1 - side, this.sockets(side).length > 0)); }
+        if (!(side >= 0)) continue;
+        ws2.serializeAttachment({ side: 1 - side });
+        this.send(ws2, room.stateFor(1 - side, here[1 - side]));
       }
     }
   }
