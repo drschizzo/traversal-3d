@@ -41,15 +41,36 @@ scene.add(hintMark);
 let pathMesh = null, hoverMove = null;
 const pathMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
 
+// pièces menacées par une pièce adverse en aperçu : anneau rouge au pied et viseur flottant au-dessus
+const threatGroup = new THREE.Group();
+scene.add(threatGroup);
+const threatRingMat = new THREE.MeshBasicMaterial({ map: TEX.ring, color: COLORS.attack, transparent: true, depthWrite: false });
+const threatMarkMat = new THREE.SpriteMaterial({ map: TEX.target, color: COLORS.attack, transparent: true, depthTest: false });
+const threatRingGeo = new THREE.PlaneGeometry(1.4, 1.4);
+function showThreat(cell) {
+  const [x, z] = cellXZ(cell), y = surface(cell);
+  const ring = new THREE.Mesh(threatRingGeo, threatRingMat);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(x, y + 0.03, z);
+  const mark = new THREE.Sprite(threatMarkMat);
+  mark.scale.setScalar(0.75);
+  mark.position.set(x, y + 1.55, z);
+  mark.userData.y = mark.position.y;
+  mark.renderOrder = 10;
+  threatGroup.add(ring, mark);
+}
+
 const exitHitGeo = new THREE.PlaneGeometry(1, 2);
-// cases accessibles ; preview : coups d'une pièce adverse, dessinés en contour et plus discrets que les coups jouables
+// cases accessibles ; preview : coups d'une pièce adverse, dessinés en contour et plus discrets que les coups jouables,
+// sauf ses captures : case pleine et pièce menacée signalée par un viseur
 export function showOverlays(moves, preview = false) {
-  overlayGroup.clear();
+  clearOverlays();
   const arrow = matchMedia('(pointer: coarse)').matches ? 0.85 : 0.62;
   for (const m of moves) {
     const isExit = m.kind === 'exit';
-    const base = m.kind === 'move' ? 0.8 : 0.9;
-    const mat = new THREE.MeshBasicMaterial({ map: isExit ? TEX.arrow : preview ? TEX.ring : TEX.tile, color: COLORS[m.kind], transparent: true, opacity: preview ? base - 0.25 : base, depthWrite: false });
+    const base = m.kind === 'move' ? 0.8 : 0.9, faint = preview && m.kind !== 'attack';
+    if (preview && m.kind === 'attack') showThreat(m.to);
+    const mat = new THREE.MeshBasicMaterial({ map: isExit ? TEX.arrow : faint ? TEX.ring : TEX.tile, color: COLORS[m.kind], transparent: true, opacity: faint ? base - 0.25 : base, depthWrite: false });
     const mesh = new THREE.Mesh(isExit ? new THREE.PlaneGeometry(arrow, arrow) : tileGeo, mat);
     mesh.rotation.x = -Math.PI / 2;
     const [x, z] = cellXZ(m.to);
@@ -70,7 +91,7 @@ export function showOverlays(moves, preview = false) {
     overlayGroup.add(mesh);
   }
 }
-export const clearOverlays = () => overlayGroup.clear();
+export function clearOverlays() { overlayGroup.clear(); threatGroup.clear(); }
 
 // survol : case éclairée et coup mis en avant parmi les cases accessibles
 export function showHover(cell, move) {
@@ -184,6 +205,10 @@ export function updateOverlays(t, lifted) {
     hintRing.scale.setScalar(1 + 0.12 * k);
     hintRing.material.opacity = 0.75 + 0.25 * k;
     hintTile.material.opacity = 0.6 + 0.25 * k;
+  }
+  if (threatGroup.children.length) {
+    threatRingMat.opacity = 0.7 + 0.3 * Math.sin(t * 5);
+    for (const o of threatGroup.children) if (o instanceof THREE.Sprite) o.position.y = o.userData.y + 0.08 * Math.sin(t * 3);
   }
   for (const o of overlayMeshes())
     if (o.userData.move.kind !== 'move' && o.userData.move !== hoverMove) o.material.opacity = o.userData.baseOpacity - 0.15 + 0.15 * Math.sin(t * 5);

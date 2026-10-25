@@ -44,7 +44,11 @@ svg.ic { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor
 #card .stat span { font-size: 10px; letter-spacing: .08em; color: var(--muted); text-transform: uppercase; }
 #card .stat span i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
 #card p { margin: 0; font-size: 12px; line-height: 1.45; color: #d4d7df; }
-#card .preview-tag { margin-bottom: 10px; padding: 5px 8px; border-radius: 8px; background: var(--glass-2); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); text-align: center; }
+#card .threats { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 10px; padding: 6px 8px; border-radius: 8px; background: rgba(255, 74, 74, .14); box-shadow: inset 0 0 0 1px rgba(255, 74, 74, .45); font-size: 12px; color: #ffd0d0; }
+#card .threats span { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: #ff8a8a; margin-right: 2px; }
+#card .threats b { font-weight: 600; }
+#card .threats b i { font-style: normal; margin-right: 3px; }
+#card .threats.none { background: var(--glass-2); box-shadow: none; color: var(--muted); font-size: 11px; justify-content: center; }
 
 #legend { position: fixed; right: 16px; bottom: 20px; padding: 10px 14px; font-size: 12px; color: #d4d7df; display: grid; gap: 5px; }
 #legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 8px; vertical-align: -2px; }

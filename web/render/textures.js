@@ -34,6 +34,16 @@ function tileTexture(kind) {
     if (kind === 'arrow') {
       g.fillStyle = 'rgba(255,255,255,.95)';
       g.beginPath(); g.moveTo(64, 10); g.lineTo(112, 62); g.lineTo(82, 62); g.lineTo(82, 116); g.lineTo(46, 116); g.lineTo(46, 62); g.lineTo(16, 62); g.closePath(); g.fill();
+    } else if (kind === 'target') {
+      // viseur : cercle et quatre traits, sur fond sombre pour rester lisible au-dessus des pièces
+      g.fillStyle = 'rgba(15,18,25,.55)';
+      g.beginPath(); g.arc(64, 64, 40, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = '#fff'; g.lineWidth = 9; g.lineCap = 'round';
+      g.beginPath(); g.arc(64, 64, 30, 0, Math.PI * 2); g.stroke();
+      g.beginPath();
+      for (const [a, b] of [[64, 8], [64, 120], [8, 64], [120, 64]]) { g.moveTo(a, b); g.lineTo(a + Math.sign(64 - a) * 30, b + Math.sign(64 - b) * 30); }
+      g.stroke();
+      g.fillStyle = '#fff'; g.beginPath(); g.arc(64, 64, 8, 0, Math.PI * 2); g.fill();
     } else if (kind === 'ring') {
       g.strokeStyle = '#fff'; g.lineWidth = 9;
       g.beginPath(); g.arc(64, 64, 52, 0, Math.PI * 2); g.stroke();
@@ -48,4 +58,4 @@ function tileTexture(kind) {
   t.anisotropy = 4;
   return t;
 }
-export const TEX = { tile: tileTexture('tile'), arrow: tileTexture('arrow'), ring: tileTexture('ring') };
+export const TEX = { tile: tileTexture('tile'), arrow: tileTexture('arrow'), ring: tileTexture('ring'), target: tileTexture('target') };

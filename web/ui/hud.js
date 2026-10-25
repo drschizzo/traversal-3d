@@ -48,10 +48,18 @@ export function showCard(pi) {
   card.innerHTML = `
     <div class="head"><span class="glyph" style="color:${TEAM[p.o].css}">${TYPE_GLYPHS[p.t]}</span>
       <div><div class="title">${TYPE_NAMES[p.t]}</div><div class="owner">${PLAYER_NAMES[p.o]} · hauteur ${s.h[G.idx(p.x, p.y)]}</div></div></div>
-    ${S.previewing && pi === S.selected ? '<div class="preview-tag">Aperçu de ses coups · non jouables</div>' : ''}
+    ${S.previewing && pi === S.selected ? threatList() : ''}
     <div class="stats"><div class="stat"><b>${G.MOVE[p.t]}</b><span><i style="background:${pips.base.color}"></i>Mouvement</span></div><div class="stat"><b>${G.STR[p.t]}</b><span><i style="background:${pips.top.color}"></i>Force</span></div></div>
     <p>${TYPE_DESC[p.t]}</p>`;
   card.classList.remove('hidden-soft');
+}
+
+// pièces que la pièce en aperçu peut capturer à son prochain coup
+function threatList() {
+  const s = S.state, seen = new Set();
+  const items = S.selMoves.filter(m => m.kind === 'attack' && !seen.has(m.to) && seen.add(m.to)).map(m => s.pieces[s.cell[m.to]]);
+  if (!items.length) return '<div class="threats none">Ne menace aucune pièce</div>';
+  return `<div class="threats"><span>Pourra capturer</span>${items.map(q => `<b><i style="color:${TEAM[q.o].css}">${TYPE_GLYPHS[q.t]}</i>${TYPE_NAMES[q.t]}</b>`).join('')}</div>`;
 }
 
 // au doigt, pas d'infobulle : le chemin tracé sous le doigt suffit
