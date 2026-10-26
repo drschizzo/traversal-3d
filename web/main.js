@@ -3,6 +3,7 @@
 //
 //   core/     règles du jeu, pures (partagées avec le serveur et les tests)
 //   render/   scène 3D : plateau, pièces, décor, effets, caméra
+//   audio/    sons du jeu (Web Audio, sans fichiers)
 //   bot/      moteur du bot (WebAssembly dans un Worker) et sa file de demandes
 //   coach/    explication et jugement des coups, progression (pur)
 //   session/  déroulement d'une partie : état (store.js), phases, modes, tours, en ligne, analyse

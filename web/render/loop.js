@@ -14,8 +14,8 @@ import { ensureNoiseTex } from './noise.js';
 import { terrainMat, plinth, stepRise, rising } from './board.js';
 import { particleFade, updateAmbient, applyAmbientQuality } from './ambient.js';
 import { setSurfaceTime } from './surfaces.js';
-import { stepTweens, tweening } from './tween.js';
-import { stepBursts, bursting } from './fx.js';
+import { stepTweens, tweening, frozen } from './tween.js';
+import { stepBursts, bursting, shakeOffset, shaking } from './fx.js';
 import { updateLifted, liftedPiece } from './pieces.js';
 import { updateOverlays, hintShown } from './overlays.js';
 import { keepPanInBounds } from './camera.js';
@@ -110,7 +110,7 @@ const simple = () => !!gfx.theme?.lite || !!gfx.Q.flatSky;
 let animT = 0, frameNo = 0;
 function frame(rawDt) {
   const lifted = liftedPiece() >= 0;
-  const moving = tweening() || bursting() || rising() || gfx.shadowDirty || lifted || hintShown() || controls.autoRotate || fieldFading();
+  const moving = tweening() || bursting() || shaking() || rising() || gfx.shadowDirty || lifted || hintShown() || controls.autoRotate || fieldFading();
   if (moving) wake(200);
   const awake = (gfx.Q.live && !simple()) || performance.now() <= gfx.wakeUntil;
   if (!awake && particleFade.value <= 0) {
@@ -121,8 +121,10 @@ function frame(rawDt) {
   autoQuality(rawDt);
   const dt = Math.min(rawDt, 0.05), t = (animT += dt);
   particleFade.value = awake ? Math.min(1, particleFade.value + dt / 0.5) : Math.max(0, particleFade.value - dt / 0.8);
-  stepTweens(dt);
-  stepBursts(dt);
+  // arrêt sur image (capture) : animations et éclats figés, le reste de la scène continue
+  const adt = frozen() ? 0 : dt;
+  stepTweens(adt);
+  stepBursts(adt);
   updateOverlays(t, updateLifted(t));
   updateAmbient(t);
   setPostTime(t);
@@ -133,8 +135,12 @@ function frame(rawDt) {
   keepPanInBounds();
   if (controls.update()) wake(200);
   updateField(t, dt);
+  // secousse : la caméra n'est décalée que le temps de cette image (les contrôles repartent de sa vraie place)
+  const jolt = shakeOffset(dt);
+  camera.position.add(jolt);
   if (gfx.Q.post && !simple()) composer.render();
   else renderer.render(scene, camera);
+  camera.position.sub(jolt);
 }
 
 export function startRendering() {

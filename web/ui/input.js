@@ -2,6 +2,7 @@
 // et raccourcis clavier
 import * as G from '../../core/index.js';
 import * as R from '../render/index.js';
+import * as Sound from '../audio/sound.js';
 import { S, phase, mode, isHuman } from '../session/store.js';
 import { performMove, undo } from '../session/turns.js';
 import { tryPuzzle } from '../session/review.js';
@@ -17,6 +18,7 @@ export function select(pi, preview = false) {
   S.selected = pi;
   S.previewing = preview;
   S.selMoves = G.pieceMoves(S.state, pi);
+  Sound.select(preview);
   R.showOverlays(S.selMoves, preview);
   R.liftPiece(pi);
   R.setSelectionRing(pi, preview);
@@ -54,9 +56,13 @@ const canPlay = () => {
   return phase.is('human', 'coach') || (phase.is('puzzle') && !!pz && !pz.solved && !pz.showSolution);
 };
 
+let hoveredMove = null;
 function onHover(e) {
   if (!S.state || !shown('hud')) return;
   const h = pick(e), busy = phase.busy();
+  // un tic à peine audible en passant d'une case accessible à une autre
+  if (h.move && h.move !== hoveredMove && !busy) Sound.tick();
+  hoveredMove = h.move;
   R.highlightPiece(h.pi, S.selected);
   canvas.style.cursor = ((h.move && !S.previewing) || h.pi >= 0) && !busy ? 'pointer' : 'default';
   R.showHover(busy ? -1 : h.cell, h.move);

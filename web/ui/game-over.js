@@ -5,6 +5,8 @@ import { isError } from '../coach/review.js';
 import { S, play, phase, mode } from '../session/store.js';
 import { recordProgress } from '../session/review.js';
 import { rematchState } from '../session/online.js';
+import * as R from '../render/index.js';
+import * as Sound from '../audio/sound.js';
 import { $ } from './dom.js';
 import { setStatus } from './hud.js';
 import { TEAM } from '../colors.js';
@@ -48,6 +50,9 @@ export function showGameOver() {
   $('btnReview').innerHTML = `<span aria-hidden="true">✦</span> Analyser la partie${faults ? ` · ${faults} faute${faults > 1 ? 's' : ''} à revoir` : ''}`;
   if (live.length && live.every(Boolean)) recordProgress(live, s);
   updateRematchButton();
+  // fanfare et étincelles pour une victoire ; une défaite contre le bot descend, un nul reste en suspens
+  Sound.finale(w === G.DRAW ? 'draw' : lost ? 'lose' : 'win');
+  if (w !== G.DRAW && !lost) R.celebrate(TEAM[w].main);
   $('over').classList.remove('hidden');
   setStatus(title, w === G.DRAW ? 0 : w);
 }

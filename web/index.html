@@ -35,6 +35,8 @@
   <symbol id="i-heights" viewBox="0 0 24 24"><path d="M3 19 9 9l4 6 2.5-3.5L21 19z"/></symbol>
   <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3A4 4 0 0 0 13 5.3l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol>
   <symbol id="i-rules" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.4a2.5 2.5 0 1 1 3.4 2.4c-.6.3-1 .8-1 1.5v.5M12 17v.1"/></symbol>
+  <symbol id="i-sound" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4zM15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></symbol>
+  <symbol id="i-mute" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4zM16 9.5l5 5M21 9.5l-5 5"/></symbol>
   <symbol id="i-full" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></symbol>
   <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
   <symbol id="i-more" viewBox="0 0 24 24"><path d="M5.5 12h.01M12 12h.01M18.5 12h.01" stroke-width="3"/></symbol>
@@ -69,6 +71,7 @@
     <button id="btnHeights" title="Afficher les hauteurs"><svg class="ic" aria-hidden="true"><use href="#i-heights"/></svg><span>Hauteurs</span></button>
     <button id="btnLink" title="Copier le lien de la partie : à envoyer à l’adversaire, ou pour la reprendre plus tard"><svg class="ic" aria-hidden="true"><use href="#i-link"/></svg><span>Lien</span></button>
     <button id="btnRules" title="Règles"><svg class="ic" aria-hidden="true"><use href="#i-rules"/></svg><span>Règles</span></button>
+    <button id="btnSound" title="Couper le son"><svg class="ic" aria-hidden="true"><use href="#i-sound"/></svg><span>Son</span></button>
     <button id="btnFull" title="Plein écran"><svg class="ic" aria-hidden="true"><use href="#i-full"/></svg><span>Plein écran</span></button>
     <button id="btnMenu" title="Menu"><svg class="ic" aria-hidden="true"><use href="#i-menu"/></svg><span>Menu</span></button>
   </div>
@@ -132,6 +135,8 @@
         <div class="seg themes" data-key="theme" id="themeSeg"></div>
         <div class="label">Qualité graphique</div>
         <div class="seg chips" id="qualitySeg"><button data-v="auto" id="qualityAuto">Auto</button><button data-v="high">Haute</button><button data-v="medium">Moyenne</button><button data-v="low">Basse</button></div>
+        <div class="label">Son</div>
+        <div class="seg chips" id="soundSeg"><button data-v="off">Coupé</button><button data-v="low">Doux</button><button data-v="mid">Moyen</button><button data-v="high">Fort</button></div>
       </div>
     </section>
 

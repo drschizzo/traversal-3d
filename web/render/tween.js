@@ -8,6 +8,12 @@ export const easeIO = t => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 
 export const wait = ms => new Promise(r => setTimeout(r, ms));
 export const tweening = () => tweens.length > 0;
 
+// arrêt sur image : toutes les animations se figent un instant (le choc d'une capture) ; la boucle de rendu
+// fige aussi les éclats (loop.js)
+let frozenUntil = 0;
+export const hitStop = ms => { frozenUntil = Math.max(frozenUntil, performance.now() + ms); };
+export const frozen = () => performance.now() < frozenUntil;
+
 export function stepTweens(dt) {
   for (let i = tweens.length - 1; i >= 0; i--) {
     const tw = tweens[i];

@@ -32,6 +32,7 @@
 // dust / extra   : deux systèmes de particules (couleur, taille, sizeVar : variation de taille, opacité,
 //                  speed : vitesse verticale — négative = chute —, speedVar, sway : balancement, flicker : scintillement)
 // burst          : éclats lors d'une capture (color, count, shards : éclats solides, gravity, speed)
+// sound          : voix des sons du jeu (soft, wood, glass, bowl, synth ; voir audio/sound.js)
 // post           : post-traitement — bloom { strength, radius, threshold }, vignette (+ vignetteColor),
 //                  shadows / highlights (teinte ajoutée aux ombres / hautes lumières), saturation, contrast,
 //                  grain, aberration (chromatique), frost (givre sur les bords), leak (fuite de lumière), heat (air qui ondule)
@@ -40,6 +41,7 @@
 export const THEMES = [
   {
     id: 'crepuscule', name: 'Crépuscule',
+    sound: 'soft',
     pips: { shape: 'sphere', top: { color: '#ffd27a', metalness: 1, roughness: 0.25, emissive: '#3a2600' }, base: { color: '#e4ebf2', metalness: 0.9, roughness: 0.3 } },
     // un paysage à l'heure dorée : herbe, roche et neige sous une lumière rasante chaude,
     // ombres bleutées, halos de soleil couchant qui glissent dans la brume, lucioles
@@ -66,6 +68,7 @@ export const THEMES = [
   },
   {
     id: 'atelier', name: 'Atelier',
+    sound: 'wood',
     pips: { shape: 'peg', top: { color: '#e8c896', roughness: 0.65 }, base: { color: '#8a5e38', roughness: 0.7 } },
     // la version en bois imaginée à l'origine : blocs de bois massif, socle en noyer, pièces en bois peint
     terrain: {
@@ -89,6 +92,7 @@ export const THEMES = [
   },
   {
     id: 'lagon', name: 'Lagon',
+    sound: 'glass',
     pips: { shape: 'sphere', top: { color: '#fff4e6', metalness: 0.15, roughness: 0.12, emissive: '#2a2218' }, base: { color: '#9fe6dc', metalness: 0.2, roughness: 0.2 } },
     terrain: {
       top: ['#1f8a80', '#33998a', '#5aab88', '#8fbf88', '#c2c890', '#cfb487', '#a99c8c', '#d4dcd9', '#eef5f4'],
@@ -110,6 +114,7 @@ export const THEMES = [
   },
   {
     id: 'braise', name: 'Braise',
+    sound: 'soft',
     pips: { shape: 'sphere', top: { color: '#ffb35a', roughness: 0.5, emissive: '#ff6a10', glow: 0.7 }, base: { color: '#ff8a3a', roughness: 0.6, emissive: '#c03a08', glow: 0.45 } },
     terrain: {
       top: ['#4a4a46', '#5c5a52', '#6e6858', '#857a5e', '#9a8460', '#a8865a', '#7a7470', '#9a948e', '#c8c0b8'],
@@ -130,6 +135,7 @@ export const THEMES = [
   },
   {
     id: 'givre', name: 'Givre',
+    sound: 'glass',
     pips: { shape: 'sphere', top: { color: '#eef8ff', metalness: 0.3, roughness: 0.05, emissive: '#3a6a90', glow: 0.8 }, base: { color: '#cfe6f8', metalness: 0.3, roughness: 0.1, emissive: '#1a3a58', glow: 0.6 } },
     terrain: {
       top: ['#5f7f96', '#7392a8', '#88a5b9', '#9db7c8', '#b3c8d6', '#c8d8e3', '#dce6ee', '#eef3f7', '#ffffff'],
@@ -152,6 +158,7 @@ export const THEMES = [
   },
   {
     id: 'ardoise', name: 'Ardoise',
+    sound: 'wood',
     pips: { shape: 'sphere', top: { color: '#f2f2ea', roughness: 1 }, base: { color: '#b8beb4', roughness: 1 } },
     // un tableau noir : ardoise feuilletée, pourtour des cases tracé à la craie, poussière de craie
     terrain: {
@@ -173,6 +180,7 @@ export const THEMES = [
   },
   {
     id: 'marbre', name: 'Marbre & or',
+    sound: 'bowl',
     pips: { shape: 'sphere', top: { color: '#ffd27a', metalness: 1, roughness: 0.12, emissive: '#3a2600' }, base: { color: '#f4f0e8', metalness: 0.1, roughness: 0.15 } },
     // une édition de luxe : marbre noir dans les creux, blanc de Carrare sur les sommets, filets d'or
     terrain: {
@@ -196,6 +204,7 @@ export const THEMES = [
   },
   {
     id: 'neon', name: 'Néon',
+    sound: 'synth',
     pips: { shape: 'sphere', top: { color: '#7ff4ff', roughness: 0.3, emissive: '#30f0ff', glow: 0.55 }, base: { color: '#ff7ae0', roughness: 0.3, emissive: '#ff3fd0', glow: 0.4 } },
     // le relief se lit aux contours : cases sombres et lustrées dont les arêtes s'allument, du cyan au magenta
     terrain: {
@@ -219,6 +228,7 @@ export const THEMES = [
   },
   {
     id: 'zen', name: 'Zen',
+    sound: 'bowl',
     pips: { shape: 'peg', top: { color: '#f4ecd8', roughness: 0.55 }, base: { color: '#8c8273', roughness: 0.7 } },
     // un jardin sec au petit matin : le gravier est ratissé autour des pierres, la mousse gagne les sommets,
     // une bordure de bois tient le tout, et la lumière est celle, égale, d'un ciel couvert
@@ -243,6 +253,7 @@ export const THEMES = [
   },
   {
     id: 'minimal', name: 'Minimal',
+    sound: 'soft',
     lite: true,
     pips: { shape: 'peg', top: { color: '#ffffff', roughness: 0.45 }, base: { color: '#232a35', roughness: 0.6 } },
     // la lisibilité d'abord : des couleurs plates, un dégradé de hauteur franc, un fond neutre, et rien qui bouge.

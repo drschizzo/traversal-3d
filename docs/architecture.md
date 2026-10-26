@@ -9,6 +9,7 @@ core/      règles du jeu, terrain, coups, liens de partie, protocole en ligne  
 engine/    moteur du bot en Rust → engine/traversal.wasm                       contrat : engine/layout.json
 server/    Worker Cloudflare : salons en ligne (room.js pur, worker.js adaptateur) et fichiers du jeu
 web/       le jeu (Vite)
+  audio/     sons du jeu, fabriqués par Web Audio (une voix par thème, aucun fichier)
   bot/       client du moteur : Worker, file de demandes annulables, cache par position
   coach/     explication et jugement des coups, progression                    pur · testé
   render/    scène 3D (Three.js) : plateau, pièces, décor, effets, caméra, boucle de rendu

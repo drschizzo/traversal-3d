@@ -5,6 +5,7 @@ import * as R from '../render/index.js';
 import { explain } from '../coach/explain.js';
 import { undoPoint } from './history.js';
 import { S, play, phase, mode, isHuman, trainingOn, coachCtx } from './store.js';
+import { viewerSide } from './modes.js';
 import { askBot, analysisFor, bumpGame, gameScope } from './bot.js';
 import { saveGame } from './game.js';
 import { judgeMove, showFeedback, hideFeedback } from './training.js';
@@ -91,6 +92,8 @@ export async function performMove(m, fromNet = false) {
   await R.animateMove(m, before);
   if (signal.aborted) return;
   R.syncPieces(S.state);
+  // ce que le coup change : renforts, menaces, pièces sauvées ou laissées en prise
+  R.showCues(G.moveEvents(before, m, S.state), viewerSide(play));
   if (verdict) {
     phase.to('judging');
     if (!S.state.over) V.status('Le bot examine votre coup…', before.turn, true);
@@ -114,6 +117,7 @@ export function undo() {
   if (k < 0) return;
   bumpGame();
   hideFeedback();
+  R.clearCues();
   S.state = S.history[k];
   S.history.length = k;
   S.movesLog.length = k;

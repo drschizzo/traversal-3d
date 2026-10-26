@@ -1,5 +1,5 @@
 // Application d'un thème (themes.js) à toute la scène : brume, décor, lumières, post-traitement, particules,
-// plateau et pièces
+// plateau et pièces, et voix des sons
 import * as THREE from 'three';
 import { THEMES } from './themes.js';
 import { renderer, scene, gfx, wake, HORIZON, HAZE_BAND, hemi, sun, fill } from './context.js';
@@ -8,6 +8,7 @@ import { applyPostTheme } from './postfx.js';
 import { applyAmbientTheme } from './ambient.js';
 import { applyBoardTheme } from './board.js';
 import { applyPiecesTheme } from './pieces.js';
+import { setVoice } from '../audio/sound.js';
 
 export { THEMES };
 export const themeById = id => THEMES.find(t => t.id === id) || THEMES[0];
@@ -32,6 +33,7 @@ export function applyTheme(id) {
   renderer.toneMappingExposure = theme.exposure ?? 1;
   applyPiecesTheme(bloom.threshold ?? 0.85);
   applyBoardTheme(theme);
+  setVoice(theme.sound);
   wake(1200);   // le temps de compiler les shaders du nouveau décor et de redessiner, même en rendu à la demande
   return theme;
 }

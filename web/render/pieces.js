@@ -189,6 +189,11 @@ export function liftPiece(pi) {
     const o = pieceObjs[lifted];
     if (o?.cell >= 0) o.grp.position.y = topY(o.h);
   }
+  // une pièce qu'on vient de prendre gonfle un instant
+  if (pi >= 0 && pi !== lifted) {
+    const g = pieceObjs[pi].grp;
+    tween(0.22, k => g.scale.setScalar(1 + 0.14 * Math.sin(Math.PI * k))).then(() => g.scale.setScalar(1));
+  }
   lifted = pi;
   gfx.shadowDirty = true;
 }

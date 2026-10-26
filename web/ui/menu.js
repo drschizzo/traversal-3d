@@ -6,6 +6,7 @@ import { progressStats } from '../coach/progress.js';
 import { renderMenuProgress } from './review-view.js';
 import { startReview } from '../session/review.js';
 import * as R from '../render/index.js';
+import * as Sound from '../audio/sound.js';
 import { load, save } from '../storage.js';
 import { S, cfg, mode, gameActive, gameAtStake } from '../session/store.js';
 import { startGame, enterGame, abandonGame, previewTerrain, resetBoard } from '../session/game.js';
@@ -14,7 +15,7 @@ import { undo } from '../session/turns.js';
 import { hint } from '../session/hint.js';
 import { toggleTraining } from '../session/training.js';
 import { matchLink } from '../session/links.js';
-import { $, shown } from './dom.js';
+import { $, shown, icon } from './dom.js';
 import { autoFullscreen, toast, layoutHud, setTools } from './hud.js';
 import { copyText } from './clipboard.js';
 
@@ -128,6 +129,23 @@ function menuShiftTarget() {
 }
 export function updateMenuShift(animated = true) { R.shiftView(menuShiftTarget(), animated); }
 
+// ---------------------------------------------------------------- son
+// le dernier volume choisi, que le bouton de la barre d'outils rétablit après l'avoir coupé
+let lastVolume = Sound.soundLevel() === 'off' ? 'mid' : Sound.soundLevel();
+function setSound(v) {
+  if (v !== 'off') lastVolume = v;
+  Sound.setSoundLevel(v);
+  showSoundChoice();
+  Sound.select(); // un aperçu du volume choisi (et le geste qui ouvre le son)
+}
+function showSoundChoice() {
+  const v = Sound.soundLevel(), off = v === 'off';
+  document.querySelectorAll('#soundSeg button').forEach(b => b.classList.toggle('sel', /** @type {HTMLElement} */ (b).dataset.v === v));
+  $('btnSound').innerHTML = `${icon(off ? 'mute' : 'sound')}<span>Son</span>`;
+  $('btnSound').title = off ? 'Rétablir le son' : 'Couper le son';
+  $('btnSound').classList.toggle('on', !off);
+}
+
 // ---------------------------------------------------------------- qualité graphique
 function showQualityChoice() {
   const q = R.qualityState();
@@ -204,6 +222,9 @@ export function initMenu() {
   $('btnReroll').onclick = async () => { if (await confirmAbandon()) previewTerrain(); };
   $('qualitySeg').onclick = e => { const b = /** @type {HTMLElement} */ (e.target).closest('button'); if (b) R.setQualityPref(b.dataset.v); };
   showQualityChoice();
+  $('soundSeg').onclick = e => { const b = /** @type {HTMLElement} */ (e.target).closest('button'); if (b) setSound(b.dataset.v); };
+  $('btnSound').onclick = () => setSound(Sound.soundLevel() === 'off' ? lastVolume : 'off');
+  showSoundChoice();
   R.onQualityChange((level, auto) => {
     showQualityChoice();
     if (auto && shown('hud')) toast(`Qualité graphique ajustée : ${R.qualityState().name}`);

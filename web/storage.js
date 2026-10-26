@@ -11,6 +11,7 @@ const json = { parse: s => JSON.parse(s), format: v => JSON.stringify(v) };
 const ENTRIES = {
   theme: { key: 'traversal.theme', codec: text, fallback: null },
   quality: { key: 'traversal.quality', codec: text, fallback: 'auto' },
+  sound: { key: 'traversal.sound', codec: text, fallback: 'mid' },
   training: { key: 'traversal.training', codec: flag, fallback: false },
   rotateOk: { key: 'traversal.rotateOk', codec: flag, fallback: false },
   // partie locale en cours : { v: 1, seed, terrain, play, moves }

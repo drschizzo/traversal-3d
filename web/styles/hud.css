@@ -60,4 +60,6 @@ svg.ic { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor
 #tip td.n { text-align: right; font-weight: 600; }
 
 .float { position: fixed; font-family: var(--display); font-weight: 700; font-size: 34px; pointer-events: none; text-shadow: 0 3px 14px rgba(0,0,0,.5); animation: floatUp 1.6s ease-out forwards; z-index: 15; }
+/* rapport de force d'une capture, renfort : plus petit que les points marqués */
+.float.small { font-size: 20px; }
 @keyframes floatUp { from { opacity: 0; transform: translate(-50%, 0) scale(.6); } 15% { opacity: 1; transform: translate(-50%, -10px) scale(1.15); } to { opacity: 0; transform: translate(-50%, -90px) scale(1); } }
