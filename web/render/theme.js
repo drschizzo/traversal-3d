@@ -2,12 +2,13 @@
 // plateau et pièces, et voix des sons
 import * as THREE from 'three';
 import { THEMES } from './themes.js';
-import { renderer, scene, gfx, wake, HORIZON, HAZE_BAND, hemi, sun, fill } from './context.js';
+import { renderer, scene, gfx, HORIZON, HAZE_BAND, hemi, sun, fill } from './context.js';
 import { applyBackgroundTheme } from './background.js';
 import { applyPostTheme } from './postfx.js';
 import { applyAmbientTheme } from './ambient.js';
 import { applyBoardTheme } from './board.js';
 import { applyPiecesTheme } from './pieces.js';
+import { prepareFrame } from './loop.js';
 import { setVoice } from '../audio/sound.js';
 
 export { THEMES };
@@ -34,6 +35,6 @@ export function applyTheme(id) {
   applyPiecesTheme(bloom.threshold ?? 0.85);
   applyBoardTheme(theme);
   setVoice(theme.sound);
-  wake(1200);   // le temps de compiler les shaders du nouveau décor et de redessiner, même en rendu à la demande
+  prepareFrame();   // shaders du nouveau décor compilés sans figer la page, puis l'image redessinée
   return theme;
 }

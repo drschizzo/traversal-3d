@@ -192,6 +192,34 @@ export function updateField(t, dt) {
 // le pavage apparaît en fondu au chargement
 export const fieldFading = () => backdrop === 'field' && fieldMat.uniforms.uFade.value < 1;
 
+// ---------------------------------------------------------------- compilation anticipée (warmup.js)
+// le pavage tel qu'il sera dessiné à la prochaine image, s'il l'est
+export const fieldPass = () => (backdrop === 'field' ? { scene: fieldScene, target: fieldRT } : null);
+
+// Ce que les autres thèmes dessineraient : leurs fonds, qui ne sont pas dans la scène en ce moment (des
+// doublures portant les mêmes matériaux), et le pavage avec chacun de ses autres décors (des copies du matériau,
+// gardées : les jeter libérerait les programmes compilés). Le ciel et le sol d'un fond simple ne se dessinent
+// qu'à l'écran (thème épuré, qualité basse) ; la table, sur les deux chemins de sortie.
+export function backdropVariants() {
+  const proxies = mats => {
+    const s = new THREE.Scene(), geo = new THREE.PlaneGeometry(1, 1);
+    for (const m of mats) s.add(Object.assign(new THREE.Mesh(geo, m), { frustumCulled: false }));
+    return s;
+  };
+  let decors = null;
+  if (!gfx.Q.flatSky) {
+    decors = new THREE.Scene();
+    for (const define of Object.values(DECORS)) {
+      if (define === decorDefine) continue;
+      const m = fieldMat.clone();
+      if (decorDefine) delete m.defines[decorDefine];
+      if (define) m.defines[define] = '';
+      decors.add(fullScreenMesh(m));
+    }
+  }
+  return { screen: proxies([skyMat, floorMat, roomMat]), room: proxies([roomMat]), decors, fieldTarget: fieldRT };
+}
+
 export function applyFieldQuality(prev) {
   applyBackdrop();   // le niveau de qualité décide aussi du fond (pavage ou ciel simple)
   if (prev.steps !== gfx.Q.steps || prev.octave2 !== gfx.Q.octave2) {

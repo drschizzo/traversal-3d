@@ -38,11 +38,10 @@ export const PIP_DEFAULT = { shape: 'sphere', top: { color: '#ffd27a', metalness
 // résolution les étaleraient en petits carrés. Leur luminosité est donc plafonnée sous ce seuil (pipCap, réglé
 // par thème), et la lueur des thèmes lumineux est dessinée à part, par un halo rond et doux.
 const pipCap = { value: 0.8 };
-const pipMaterial = spec => {
-  const m = new THREE.MeshStandardMaterial({
-    color: spec.color, metalness: spec.metalness ?? 0, roughness: spec.roughness ?? 0.5,
-    emissive: spec.emissive ?? '#000000', emissiveIntensity: spec.glow ?? 1,
-  });
+// Un matériau par repère, gardé d'un thème à l'autre : le jeter libérerait son shader compilé, et le thème
+// suivant le recompilerait en figeant l'image (warmup.js).
+const pipMaterial = () => {
+  const m = new THREE.MeshStandardMaterial();
   m.onBeforeCompile = sh => {
     sh.uniforms.uPipCap = pipCap;
     sh.fragmentShader = 'uniform float uPipCap;\n' + sh.fragmentShader.replace('#include <dithering_fragment>',
@@ -50,6 +49,13 @@ const pipMaterial = spec => {
   };
   m.customProgramCacheKey = () => 'pip-cap';
   return m;
+};
+const stylePip = (m, spec) => {
+  m.color.set(spec.color);
+  m.metalness = spec.metalness ?? 0;
+  m.roughness = spec.roughness ?? 0.5;
+  m.emissive.set(spec.emissive ?? '#000000');
+  m.emissiveIntensity = spec.glow ?? 1;
 };
 const haloTex = radialTexture(64);
 
@@ -65,7 +71,9 @@ const pieceColors = o => (gfx.theme.pieces?.teams || TEAM)[o];
 function finishPiece(m) {
   const f = gfx.theme.pieces || {};
   m.roughness = f.roughness ?? 0.3;
-  m.clearcoat = f.clearcoat ?? 1;
+  // jamais tout à fait nul : sans vernis, le shader des pièces serait une autre variante, à compiler au changement
+  // de thème en figeant l'image (warmup.js) ; un millième de vernis ne se voit pas
+  m.clearcoat = Math.max(f.clearcoat ?? 1, 0.001);
   m.clearcoatRoughness = f.clearcoatRoughness ?? 0.12;
 }
 
@@ -75,22 +83,21 @@ function stylePiece(obj) {
   for (const pip of obj.pips) {
     const spec = pip.role === 0 ? st.top : st.base;
     pip.mesh.geometry = PIP_GEO[shape][pip.role];
-    pip.mesh.material.dispose();
-    pip.mesh.material = pipMaterial(spec);
+    stylePip(pip.mesh.material, spec);
     pip.mesh.rotation.y = shape === 'octa' ? Math.PI / 4 : 0;
     // halo doux pour les repères lumineux ; le repère lui-même en masque le centre (test de profondeur)
-    if (pip.halo) { pip.halo.removeFromParent(); pip.halo.material.dispose(); pip.halo = null; }
-    if (spec.glow) {
-      const halo = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: haloTex, color: spec.emissive, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false,
-        opacity: Math.min(0.8, 0.45 + spec.glow * 0.4),
-      }));
-      halo.scale.setScalar(pip.role === 0 ? 0.26 : 0.17);
-      halo.position.copy(pip.mesh.position);
-      halo.userData.baseOpacity = halo.material.opacity;
-      halo.raycast = () => {}; // le halo ne compte pas pour le survol des pièces
-      obj.grp.add(halo);
-      pip.halo = halo;
+    if (spec.glow && !pip.halo) {
+      pip.halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTex, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
+      pip.halo.position.copy(pip.mesh.position);
+      pip.halo.raycast = () => {}; // le halo ne compte pas pour le survol des pièces
+      obj.grp.add(pip.halo);
+    }
+    if (pip.halo) {
+      pip.halo.visible = !!spec.glow;
+      pip.halo.material.color.set(spec.emissive ?? '#000000');
+      pip.halo.material.opacity = Math.min(0.8, 0.45 + (spec.glow ?? 0) * 0.4);
+      pip.halo.scale.setScalar(pip.role === 0 ? 0.26 : 0.17);
+      pip.halo.userData.baseOpacity = pip.halo.material.opacity;
     }
   }
   const c = pieceColors(obj.o);
@@ -121,7 +128,7 @@ export function buildPieces(s) {
     for (const tip of PIECE_GEO[p.t].tips) pips.push({ role: 0, at: tip });
     for (const [x, y, z] of PIECE_GEO[p.t].feet) pips.push({ role: 1, at: [x, y + 0.008, z] });
     for (const pip of pips) {
-      pip.mesh = new THREE.Mesh(PIP_GEO.sphere[pip.role], new THREE.MeshStandardMaterial());
+      pip.mesh = new THREE.Mesh(PIP_GEO.sphere[pip.role], pipMaterial());
       pip.mesh.position.set(...pip.at);
       grp.add(pip.mesh);
     }

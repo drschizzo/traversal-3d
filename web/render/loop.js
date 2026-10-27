@@ -19,6 +19,7 @@ import { stepBursts, bursting, shakeOffset, shaking } from './fx.js';
 import { updateLifted, liftedPiece } from './pieces.js';
 import { updateOverlays, hintShown } from './overlays.js';
 import { keepPanInBounds } from './camera.js';
+import { prepare, holding, warmAhead, runWarmDraws } from './warmup.js';
 import { save } from '../storage.js';
 
 // ---------------------------------------------------------------- qualité
@@ -55,6 +56,7 @@ function applyQuality(level, auto = false) {
     gfx.shadowDirty = true;
   }
   applyAmbientQuality();
+  prepareFrame();   // nouvelles variantes de shaders (bruit précalculé, pas du pavage, ombres, chemin de sortie)
   for (const fn of qualityListeners) fn(gfx.level, auto);
 }
 
@@ -106,9 +108,15 @@ document.addEventListener('visibilitychange', () => wake());
 // fond simple (thème épuré, ou qualité basse) : rien n'anime le décor, donc aucune raison de recalculer une image
 // qui ne changerait pas, et le post-traitement (plusieurs passes plein écran) ne sert à rien
 const simple = () => !!gfx.theme?.lite || !!gfx.Q.flatSky;
+// la scène passe par le post-traitement, ou est dessinée directement à l'écran
+const composed = () => gfx.Q.post && !simple();
+
+/** Compile sans figer la page les shaders de la prochaine image (warmup.js) ; d'ici là, l'image reste celle d'avant. */
+export const prepareFrame = () => prepare(composed);
 
 let animT = 0, frameNo = 0;
 function frame(rawDt) {
+  if (holding()) return;   // shaders en cours de compilation : l'image précédente reste affichée
   const lifted = liftedPiece() >= 0;
   const moving = tweening() || bursting() || shaking() || rising() || gfx.shadowDirty || lifted || hintShown() || controls.autoRotate || fieldFading();
   if (moving) wake(200);
@@ -135,10 +143,11 @@ function frame(rawDt) {
   keepPanInBounds();
   if (controls.update()) wake(200);
   updateField(t, dt);
+  runWarmDraws();
   // secousse : la caméra n'est décalée que le temps de cette image (les contrôles repartent de sa vraie place)
   const jolt = shakeOffset(dt);
   camera.position.add(jolt);
-  if (gfx.Q.post && !simple()) composer.render();
+  if (composed()) composer.render();
   else renderer.render(scene, camera);
   camera.position.sub(jolt);
 }
@@ -146,4 +155,6 @@ function frame(rawDt) {
 export function startRendering() {
   const clock = new THREE.Clock();
   renderer.setAnimationLoop(() => frame(clock.getDelta()));
+  // le monde est posé juste après (main.js) : il est compilé avec, puis, la première image affichée, le reste
+  prepareFrame().then(() => setTimeout(() => warmAhead(gfx.Q.post), 1500));
 }
