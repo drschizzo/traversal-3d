@@ -2,7 +2,8 @@
 // Ce qu'il contient est dans S.feedback (session/training.js) ; ici, sa mise en page et ses boutons.
 import { isError } from '../coach/review.js';
 import { S } from '../session/store.js';
-import { feedbackBlocks, feedbackAction, hideFeedback } from '../session/training.js';
+import { feedbackBlocks, hideFeedback } from '../session/training.js';
+import { feedbackAction } from '../session/turns.js';
 import { $ } from './dom.js';
 import { bindMoveChips } from './coach-panel.js';
 import { moveRegistry } from './coach-view.js';

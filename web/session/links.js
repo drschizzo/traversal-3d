@@ -3,7 +3,8 @@ import * as G from '../../core/index.js';
 import * as Net from '../net.js';
 import { wireMoves } from './history.js';
 import { S, cfg, play } from './store.js';
-import { installGame, saveGame, enterGame } from './game.js';
+import { installGame, enterGame } from './game.js';
+import { saveGame } from './save.js';
 import * as V from './view.js';
 
 const pageUrl = () => location.origin + location.pathname + location.search;

@@ -48,6 +48,9 @@ core  ←  web/coach, web/bot  ←  web/session  ←  web/ui
   `ui/bindings.js` dit ce que l'interface en fait. Un module de session se charge donc sans DOM, et se teste en
   s'abonnant à ses annonces. Les modules n'exécutent rien à leur chargement : chacun expose une fonction `init…()`
   appelée par `main.js`, dans l'ordre — les abonnements d'abord.
+- Aucun cycle d'imports : à l'intérieur de `session/`, la fin de partie (`game.js`) appelle la boucle des tours
+  (`turns.js`), qui appelle l'entraînement (`training.js`) et la sauvegarde (`save.js`), jamais l'inverse.
+  `tests/architecture.test.js` vérifie ces règles et l'absence de cycle.
 - L'état reste dans `S` (`session/store.js`) : une annonce dit *que* quelque chose a changé, et le module de `ui/`
   qui l'écoute relit `S`. Elle ne transporte que ce qui n'est pas dans `S` (le texte d'un message, par exemple).
 
@@ -86,6 +89,11 @@ Chaque mode (`bot`, `pvp`, `bvb`, `online`) déclare ses capacités : occupe-t-o
 coup, demander un conseil, y a-t-il une lecture automatique, l'adversaire est-il distant… Le reste du code interroge
 ces capacités (`mode().undo`, `mode().remote`) au lieu de tester le nom du mode.
 
+Un mode qui a son propre déroulement fournit à son initialisation un *déroulement* (`setDriver`) : `turn()` prend
+un tour en charge, `send(m)` transmet le coup du joueur, `leave(resign)` quitte la partie. `nextTurn`, `performMove`
+et `abandonGame` passent par `driver()` sans connaître le module du mode : c'est ainsi que `online.js` se branche
+(`initOnline()`), et un autre mode distant ferait de même.
+
 ## Le bot
 
 - `engine/` : recherche negamax en Rust, compilée en WebAssembly (`engine/build.sh`). Le tampon d'échange entre
@@ -122,7 +130,7 @@ version de ces deux modules.
 | Évolution | Où |
 |---|---|
 | une règle, une variante | `core/rules.js` et `engine/src/game.rs`, puis `tests/rules.test.js` ; `tests/parity.test.js` vérifie que les deux concordent |
-| un mode de jeu | une entrée dans `session/modes.js` ; s'il a un déroulement propre, son module (comme `session/online.js`) appelé par `nextTurn` |
+| un mode de jeu | une entrée dans `session/modes.js` ; s'il a un déroulement propre, son module (comme `session/online.js`), qui le déclare par `setDriver` |
 | un thème | une entrée dans `render/themes.js` (format documenté en tête du fichier) |
 | un effet, une surface | `render/` (GLSL dans `render/glsl/`) |
 | une raison d'expliquer un coup | `coach/explain.js`, rattachée à un thème de `coach/topics.js` |
@@ -137,7 +145,7 @@ version de ces deux modules.
 |---|---|
 | `npm run lint` | erreurs probables (ESLint) |
 | `npm run typecheck` | types (JSDoc, TypeScript sans compilation) : `tsconfig.json` pour tout, `tsconfig.strict.json` en mode strict pour `core/` et `server/` |
-| `npm test` | règles, parité avec Rust, liens, moteur WebAssembly, explications, client du bot, phases, portées, annonces, salons |
+| `npm test` | règles, parité avec Rust, liens, moteur WebAssembly, explications, client du bot, phases, portées, annonces, salons, sens des dépendances |
 | `npm run e2e` | le jeu construit dans Chromium : bot contre bot, partie par lien et son analyse, partie en ligne |
 | `cargo test` (dans `engine/`) | interface WebAssembly du moteur |
 

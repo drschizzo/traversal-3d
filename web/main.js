@@ -15,7 +15,7 @@ import * as R from './render/index.js';
 import { load } from './storage.js';
 import { readLink } from './session/links.js';
 import { restoreGame, previewTerrain } from './session/game.js';
-import { joinFromLink, resumeOnline, wakeNet } from './session/online.js';
+import { initOnline, joinFromLink, resumeOnline, wakeNet } from './session/online.js';
 import { warmUpBot } from './session/bot.js';
 import { initBindings } from './ui/bindings.js';
 import { initHud, layoutHud } from './ui/hud.js';
@@ -28,6 +28,7 @@ import { initLobby } from './ui/lobby.js';
 R.applyTheme(load('theme'));
 
 initBindings();
+initOnline();
 initHud({ onCompactChange: () => { renderCoach(); updateMenuShift(false); } });
 initMenu();
 initControls();

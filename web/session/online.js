@@ -5,6 +5,7 @@ import * as G from '../../core/index.js';
 import { PLAYER_NAMES, rejectText, errorText } from '../i18n/fr.js';
 import * as Net from '../net.js';
 import { S, cfg, play, phase, mode, isHuman, liveNow } from './store.js';
+import { setDriver } from './modes.js';
 import { installGame, enterGame, abandonGame } from './game.js';
 import { nextTurn, performMove } from './turns.js';
 import * as V from './view.js';
@@ -14,11 +15,16 @@ let rematchAsked = false, rematchOffered = false;
 // salon en cours d'ouverture : 'create' ou 'join' (fenêtre du salon affichée), 'resume' (reprise au chargement)
 let lobbyIntent = null;
 
+// la boucle des tours et la fin de partie passent par ce déroulement pour le mode « online » (modes.js)
+export function initOnline() {
+  setDriver('online', { turn: onlineTurn, send: sendMove, leave: leaveRoom });
+}
+
 function openRoom(code, token) {
   net = Net.connect(code, token, { onMessage: onNet, onStatus: onNetStatus });
 }
 
-export function leaveRoom(resign) {
+function leaveRoom(resign) {
   if (!net) return;
   if (resign) net.send({ type: 'resign' });
   net.close();
@@ -164,7 +170,7 @@ function applyNetState(msg) {
 // Tour d'une partie en ligne ; true si le tour est traité ici, false pour la suite habituelle de nextTurn.
 // Un coup reçu est joué ; sinon on attend la confirmation de son coup, ou le coup de l'adversaire.
 // (jamais pendant l'animation d'un coup : wakeTurn et applyNetState attendent qu'elle finisse, et performMove relance le tour)
-export function onlineTurn() {
+function onlineTurn() {
   const s = S.state;
   queue = queue.filter(m => m.ply >= s.ply);
   const k = queue.findIndex(m => m.ply === s.ply);
@@ -184,7 +190,7 @@ export function onlineTurn() {
   return true;
 }
 
-export function sendMove(m) {
+function sendMove(m) {
   if (phase.is('sending')) return;
   const s = S.state;
   if (!net?.send({ type: 'move', ply: s.ply, ...G.toWire(m) })) { V.toast('Connexion perdue : coup non envoyé.'); return; }

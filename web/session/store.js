@@ -2,7 +2,7 @@
 // sélection, analyse. Un seul objet (S) plutôt que des dizaines de variables : on voit d'un coup d'œil
 // tout ce qui fait l'état de l'interface, et qui le modifie (rechercher « S.nom »).
 import { createPhase } from './phase.js';
-import { MODES, isHuman as humanAt, viewerSide } from './modes.js';
+import { MODES, driverOf, isHuman as humanAt, viewerSide } from './modes.js';
 import { load } from '../storage.js';
 
 // cfg : choix du menu ; play : réglages de la partie en cours, figés à son lancement.
@@ -56,6 +56,7 @@ export const S = {
 };
 
 export const mode = () => MODES[play.mode];
+export const driver = () => driverOf(play);
 export const isHuman = t => humanAt(play, t);
 export const liveNow = () => (S.viewPly === null ? S.state : S.liveState);
 export const gameActive = () => S.inGame && !!S.state && !liveNow().over;

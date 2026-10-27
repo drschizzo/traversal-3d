@@ -1,21 +1,22 @@
 // Déroulement de la partie : à qui de jouer, coup du bot, coup joué (animé, éventuellement jugé), coup repris
 import * as G from '../../core/index.js';
 import { PLAYER_NAMES, describeMove } from '../i18n/fr.js';
+import { save } from '../storage.js';
 import * as R from '../render/index.js';
 import { explain } from '../coach/explain.js';
 import { undoPoint } from './history.js';
-import { S, play, phase, mode, isHuman, trainingOn, coachCtx } from './store.js';
+import { S, play, phase, mode, driver, isHuman, trainingOn, coachCtx } from './store.js';
 import { viewerSide } from './modes.js';
 import { askBot, analysisFor, bumpGame, gameScope } from './bot.js';
-import { saveGame } from './game.js';
+import { saveGame } from './save.js';
 import { judgeMove, showFeedback, hideFeedback } from './training.js';
 import { clearHint } from './hint.js';
-import { onlineTurn, sendMove } from './online.js';
 import * as V from './view.js';
+import { BEST, PLAYED } from '../colors.js';
 
 // le tour suivant : fin de partie, joueur humain, pause, ou coup du bot
 export async function nextTurn() {
-  if (mode().remote && onlineTurn()) return;
+  if (driver()?.turn()) return;
   const s = S.state;
   V.refresh();
   if (s.over) {
@@ -68,9 +69,11 @@ export async function nextTurn() {
   await performMove(move);
 }
 
-// Joue le coup m. En ligne, le coup du joueur est d'abord envoyé, puis joué quand le serveur le confirme (fromNet).
-export async function performMove(m, fromNet = false) {
-  if (mode().remote && !fromNet) return sendMove(m);
+// Joue le coup m. Un mode qui a son propre déroulement (en ligne) transmet d'abord le coup du joueur, puis le fait
+// jouer quand il est confirmé (relayed).
+export async function performMove(m, relayed = false) {
+  const d = driver();
+  if (d && !relayed) return d.send(m);
   const { signal } = gameScope;
   const hintUsed = S.hintLevel;
   const before = S.state, human = isHuman(before.turn);
@@ -127,4 +130,37 @@ export function undo() {
   V.clearSelection();
   R.syncPieces(S.state);
   nextTurn();
+}
+
+// ---------------------------------------------------------------- reprise après un verdict (mode Entraînement)
+/** « Pourquoi ? », « Continuer » ou « Reprendre le coup » sous le verdict. */
+export function feedbackAction(action) {
+  const r = S.feedback;
+  if (!r) return;
+  if (action === 'why') {
+    S.feedbackOpen = true;
+    V.emit('feedback');
+    V.showPlan([{ move: r.best, side: r.side, color: BEST }, { move: r.move, side: r.side, color: PLAYED }]);
+  } else if (action === 'go') {
+    const waiting = phase.is('coach');
+    hideFeedback();
+    if (waiting) nextTurn();
+  } else if (action === 'undo') {
+    if (phase.is('animating', 'judging')) return;
+    // le bot réfléchit déjà à sa réponse : elle est abandonnée
+    if (phase.is('bot')) { bumpGame(); phase.to('human'); }
+    hideFeedback();
+    undo();
+  }
+}
+
+export function toggleTraining() {
+  S.training = !S.training;
+  save('training', S.training);
+  V.toast(S.training ? 'Entraînement : chacun de vos coups est jugé aussitôt, et une faute peut être reprise.' : 'Entraînement désactivé.');
+  if (!S.training) {
+    hideFeedback();
+    if (phase.is('coach')) nextTurn();
+  } else if (S.state && !S.state.over && isHuman(S.state.turn) && phase.is('human')) analysisFor(S.state);
+  V.refresh();
 }

@@ -1,19 +1,14 @@
-// Cycle de vie d'une partie : monde affiché, nouvelle partie, partie restaurée ou chargée, entrée en jeu, abandon,
-// et sauvegarde de la partie locale en cours (pour la reprendre après un rechargement)
+// Cycle de vie d'une partie : monde affiché, nouvelle partie, partie restaurée ou chargée, entrée en jeu, abandon
 import * as G from '../../core/index.js';
 import { TERRAIN_NAMES } from '../i18n/fr.js';
 import * as R from '../render/index.js';
-import { isLevel } from '../bot/levels.js';
-import { load, save } from '../storage.js';
-import { MODES } from './modes.js';
-import { wireMoves } from './history.js';
-import { S, cfg, play, phase, mode, isHuman, gameActive } from './store.js';
+import { S, cfg, play, phase, mode, driver, isHuman, gameActive } from './store.js';
+import { saveGame, savedGame } from './save.js';
 import { bumpGame, gameScope } from './bot.js';
 import { nextTurn } from './turns.js';
 import { resetCoaching } from './training.js';
 import { clearHint } from './hint.js';
 import { closeReview } from './review.js';
-import { leaveRoom } from './online.js';
 import * as V from './view.js';
 
 // affiche un monde ; s : position à afficher (partie restaurée), sinon position de départ
@@ -41,25 +36,14 @@ export function resetBoard() {
   R.dropPieces(0.1);
 }
 
-// ---------------------------------------------------------------- sauvegarde de la partie en cours
-export function saveGame() {
-  if (!mode().local) return; // la partie en ligne est gardée par le serveur (session dans net.js)
-  if (!gameActive()) return save('game', null);
-  save('game', { v: 1, seed: S.worldSeed, terrain: S.worldTerrain, play, moves: wireMoves(S.movesLog) });
-}
-
-// rejoue les coups sauvegardés sur le monde reconstruit à partir de sa graine ; false si la sauvegarde est inutilisable
+// reprend la partie locale sauvegardée (save.js) ; false s'il n'y en a pas
 export function restoreGame() {
-  const d = load('game');
-  if (!d || !G.isTerrain(d.terrain)) return false;
-  if (!MODES[d.play?.mode]?.local || ![0, 1].includes(d.play.side) || !isLevel(d.play.level)) return false;
-  const r = G.replay(d.seed >>> 0, d.terrain, d.moves);
-  if (!r) { save('game', null); return false; }
-  if (r.state.over) return false;
-  Object.assign(play, d.play);
-  Object.assign(cfg, play, { terrain: d.terrain, where: 'local' });
+  const g = savedGame();
+  if (!g) return false;
+  Object.assign(play, g.play);
+  Object.assign(cfg, play, { terrain: g.terrain, where: 'local' });
   V.emit('menu');
-  installGame(d.seed >>> 0, d.terrain, r);
+  installGame(g.seed, g.terrain, g.replay);
   return true;
 }
 
@@ -130,7 +114,7 @@ export function enterGame(delay = R.rising() ? 1900 : 900) {
 
 // abandon de la partie en cours (retour au menu, nouvelle partie, salon quitté)
 export function abandonGame() {
-  if (mode().remote) leaveRoom(gameActive());
+  driver()?.leave(gameActive());
   bumpGame();
   if (S.viewPly !== null) { S.state = S.liveState; S.viewPly = null; }
   closeReview(false);
