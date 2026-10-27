@@ -18,20 +18,31 @@ export const PROTOCOL = 1;
 // codes de salon : six lettres, sans I ni O (trop proches de 1 et 0)
 export const CODE_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 export const CODE_LENGTH = 6;
-export const CODE_RE = /^[A-HJ-NP-Z]{6}$/;
-export const normalizeCode = s => (s || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, CODE_LENGTH);
+export const CODE_RE = new RegExp(`^[${CODE_LETTERS}]{${CODE_LENGTH}}$`);
+export const normalizeCode = (/** @type {string | null | undefined} */ s) => (s || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, CODE_LENGTH);
 
 // fermetures de la WebSocket décidées par le serveur (le client ne se reconnecte pas)
 export const CLOSE = { REPLACED: 4000, VERSION: 4001, FULL: 4003, NOT_FOUND: 4004, EXPIRED: 4010 };
-export const isFinalClose = code => code >= 4000 && code < 4100;
+export const isFinalClose = (/** @type {number} */ code) => code >= 4000 && code < 4100;
 
 // refus d'un coup, erreurs d'accès, erreurs de création de salon
 export const REJECT = { OVER: 'over', DESYNC: 'desync', NOT_YOUR_TURN: 'turn', ILLEGAL: 'illegal' };
 export const ERROR = { NOT_FOUND: 'notfound', FULL: 'full', VERSION: 'version', RATE: 'rate', UNAVAILABLE: 'unavailable', BAD_CODE: 'badcode', NOT_WEBSOCKET: 'websocket' };
 
-const isInt = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+/** @type {(v: unknown, lo: number, hi: number) => v is number} */
+const isInt = (v, lo, hi) => typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi;
 
-/** Message d'un client, validé ; null s'il est illisible ou mal formé. */
+/**
+ * @typedef {{ type: 'join', v: number, token: string | null }
+ *   | { type: 'move', ply: number, pi: number, kind: import('./constants.js').Kind, to: number }
+ *   | { type: 'resign' } | { type: 'rematch' }} ClientMessage
+ */
+
+/**
+ * Message d'un client, validé ; null s'il est illisible ou mal formé.
+ * @param {unknown} raw
+ * @returns {ClientMessage | null}
+ */
 export function parseClientMessage(raw) {
   if (typeof raw !== 'string' || raw.length > 512) return null;
   let msg;

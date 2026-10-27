@@ -1,0 +1,7 @@
+{
+  // Contrôle strict des parties partagées (règles, protocole, serveur) : npm run typecheck lance les deux configurations.
+  // Le jeu (web/) suit tsconfig.json, encore non strict.
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "strict": true, "lib": ["ES2023", "DOM"], "types": [] },
+  "include": ["core", "server/*.js", "server/*.d.ts"]
+}

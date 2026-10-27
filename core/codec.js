@@ -7,17 +7,22 @@ import { TERRAINS, KINDS } from './constants.js';
 
 const VERSION = 1;
 
+/** @param {Uint8Array} bytes */
 function toBase64url(bytes) {
   let bin = '';
   for (const b of bytes) bin += String.fromCharCode(b);
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+/** @param {string} str */
 function fromBase64url(str) {
   const bin = atob(str.replace(/-/g, '+').replace(/_/g, '/'));
   return Uint8Array.from(bin, c => c.charCodeAt(0));
 }
 
+/** @import { Match } from './move.js' */
+
+/** @param {Match} match @returns {string} */
 export function encodeMatch({ seed, terrain, moves }) {
   const t = TERRAINS.indexOf(terrain);
   if (t < 0) throw new Error('terrain inconnu');
@@ -32,6 +37,7 @@ export function encodeMatch({ seed, terrain, moves }) {
   return toBase64url(bytes);
 }
 
+/** @param {string} str @returns {Match} */
 export function decodeMatch(str) {
   const bytes = fromBase64url(str);
   if (bytes.length < 5 || bytes.length % 2 === 0 || bytes[0] >> 4 !== VERSION) throw new Error('lien de partie invalide');

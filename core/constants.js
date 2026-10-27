@@ -16,6 +16,8 @@ export const MAX_PLIES = 200;
 export const DRAW = 2;
 
 // types de coup ; l'indice sert au codage compact (liens de partie, serveur, moteur)
+/** @typedef {'move' | 'attack' | 'exit'} Kind */
+/** @type {Kind[]} */
 export const KINDS = ['move', 'attack', 'exit'];
 
 // raisons de fin de partie, dans l'ordre des codes du moteur Rust (R_SENTINEL = 1…)
@@ -28,4 +30,4 @@ export const TERRAINS = ['random', 'mountains', 'valleys', 'highlands', 'woods',
 
 // évaluation d'une victoire forcée (moteur) : WIN − ply ; au-delà de WIN − 1000, la partie est jouée d'avance
 export const WIN = 100000;
-export const isMateScore = score => Math.abs(score) >= WIN - 1000;
+export const isMateScore = (/** @type {number} */ score) => Math.abs(score) >= WIN - 1000;

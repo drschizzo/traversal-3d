@@ -3,7 +3,7 @@
 // Chaque raison porte un thème (relié au guide de stratégie), un poids et un ton : la plus lourde devient
 // « l'idée » du coup, affichée en tête ; les autres se replient.
 import * as G from '../../core/index.js';
-import { WIN, isMateScore, sameMove } from '../../core/index.js';
+import { WIN, attacksBy, isMateScore, sameMove } from '../../core/index.js';
 import { PLAYER_NAMES, TYPE_GLYPHS, TYPE_NAMES } from '../i18n/fr.js';
 import { DEF_CTX, pieceRef, moveText, moveAdvice, plural, pct, cap } from './wording.js';
 
@@ -18,19 +18,6 @@ function bestSentinel(turns, s, o) {
   let b = 99;
   for (const p of s.pieces) if (p.o === o && p.t === G.SENTINEL && p.st === G.ON_BOARD) b = Math.min(b, turnsOf(turns, p));
   return b;
-}
-
-// attaques que le camp `by` pourrait jouer s'il avait le trait : cible -> attaquants
-function attacksBy(s, by) {
-  const map = new Map();
-  if (s.over) return map;
-  for (const m of G.allMoves({ ...s, turn: by }, true)) {
-    if (m.kind !== 'attack') continue;
-    const d = s.cell[m.to];
-    if (!map.has(d)) map.set(d, []);
-    map.get(d).push(m.pi);
-  }
-  return map;
 }
 
 function raceText(me, op) {

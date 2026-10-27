@@ -2,7 +2,7 @@
 // pièces mises hors de prise ou laissées en prise, pièce prête à sortir. Pur : compare deux positions.
 import { STR, SENTINEL, ON_BOARD } from './constants.js';
 import { idx, NEIGH } from './board.js';
-import { allMoves, pieceMoves } from './rules.js';
+import { attacksBy, pieceMoves } from './rules.js';
 
 /**
  * @typedef {{ kind: 'reinforce', pi: number, ally: number, saved: boolean }
@@ -11,22 +11,14 @@ import { allMoves, pieceMoves } from './rules.js';
  *   | { kind: 'safe', pi: number }
  *   | { kind: 'brink', pi: number, decisive: boolean }} MoveEvent
  */
-
-// attaques que le camp `by` pourrait jouer s'il avait le trait : pièce visée -> attaquants
-function attacksBy(s, by) {
-  const map = new Map();
-  for (const m of allMoves({ ...s, turn: by }, true)) {
-    if (m.kind !== 'attack') continue;
-    const d = s.cell[m.to];
-    if (!map.has(d)) map.set(d, []);
-    map.get(d).push(m.pi);
-  }
-  return map;
-}
+/** @import { State } from './rules.js' */
 
 // pièces alliées (de la pièce pi) adjacentes à la case c
+/** @param {State} s @param {number} pi @param {number} c */
 function alliesAround(s, pi, c) {
-  const o = s.pieces[pi].o, res = [];
+  /** @type {number[]} */
+  const res = [];
+  const o = s.pieces[pi].o;
   for (const n of NEIGH[c]) {
     const q = s.cell[n];
     if (q >= 0 && q !== pi && s.pieces[q].o === o) res.push(q);
@@ -35,11 +27,13 @@ function alliesAround(s, pi, c) {
 }
 
 // la pièce pi pourrait-elle sortir au prochain tour de son camp ?
+/** @type {(s: State, pi: number) => boolean} */
 const canExit = (s, pi) => s.pieces[pi].st === ON_BOARD && pieceMoves({ ...s, turn: s.pieces[pi].o }, pi, true).some(m => m.kind === 'exit');
 
 /**
  * Événements du coup m, joué depuis before et menant à after (après applyMove). Rien quand la partie s'achève :
  * la fin a ses propres effets.
+ * @param {State} before @param {import('./move.js').WireMove} m @param {State} after
  * @returns {MoveEvent[]}
  */
 export function moveEvents(before, m, after) {
@@ -51,7 +45,7 @@ export function moveEvents(before, m, after) {
 
   // menaces du camp adverse, avant et après : ce qui est sauvé, ce qui est laissé en prise
   const opBefore = attacksBy(before, op), opAfter = attacksBy(after, op);
-  const nowSafe = pi => opBefore.has(pi) && !opAfter.has(pi) && after.pieces[pi].st === ON_BOARD;
+  const nowSafe = (/** @type {number} */ pi) => opBefore.has(pi) && !opAfter.has(pi) && after.pieces[pi].st === ON_BOARD;
 
   // renfort : la pièce arrive à côté d'un allié qu'elle ne touchait pas (+1 à sa défense)
   const wasNear = new Set(alliesAround(before, m.pi, from)), helped = new Set();

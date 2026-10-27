@@ -3,6 +3,7 @@
 import { N, NC, TERRAINS } from './constants.js';
 import { idx, NEIGH } from './board.js';
 
+/** @param {number} a @returns {() => number} */
 export function mulberry32(a) {
   return function () {
     a |= 0; a = (a + 0x6d2b79f5) | 0;
@@ -13,13 +14,17 @@ export function mulberry32(a) {
 }
 
 export const randomSeed = () => (Math.random() * 2 ** 32) >>> 0;
-export const isTerrain = mode => TERRAINS.includes(mode);
-export const isSeed = seed => Number.isInteger(seed) && seed >= 0 && seed < 2 ** 32;
+/** @type {(mode: unknown) => mode is string} */
+export const isTerrain = mode => typeof mode === 'string' && TERRAINS.includes(mode);
+/** @type {(seed: unknown) => seed is number} */
+export const isSeed = seed => typeof seed === 'number' && Number.isInteger(seed) && seed >= 0 && seed < 2 ** 32;
 
+/** @param {() => number} rng @param {number} scale @returns {(x: number, y: number) => number} */
 function valueNoise(rng, scale) {
   const G = 16, grid = Array.from({ length: G * G }, () => rng());
+  /** @type {(i: number, j: number) => number} */
   const g = (i, j) => grid[(((j % G) + G) % G) * G + (((i % G) + G) % G)];
-  const s = t => t * t * (3 - 2 * t);
+  const s = (/** @type {number} */ t) => t * t * (3 - 2 * t);
   return (x, y) => {
     const fx = x / scale, fy = y / scale, x0 = Math.floor(fx), y0 = Math.floor(fy);
     const u = s(fx - x0), v = s(fy - y0);
@@ -28,18 +33,25 @@ function valueNoise(rng, scale) {
   };
 }
 
+/** @returns {Int8Array} hauteurs de 0 à 8, case par case */
 export function generateTerrain(mode = 'random', seed = randomSeed()) {
   const rng = mulberry32(seed);
   const nA = valueNoise(rng, 3.4), nB = valueNoise(rng, 1.8), nC = valueNoise(rng, 5.5);
   const ox = rng() * 20, oy = rng() * 20;
+  /** @type {{ x: number, y: number, s: number, a: number }[]} */
   const blobs = [];
+  /** @type {(k: number, sMin: number, sMax: number, spread: number) => void} */
   const addBlobs = (k, sMin, sMax, spread) => {
     for (let i = 0; i < k; i++)
       blobs.push({ x: 4.5 + (rng() * 2 - 1) * spread, y: 4.5 + (rng() * 2 - 1) * spread, s: sMin + rng() * (sMax - sMin), a: 0.75 + rng() * 0.25 });
   };
+  /** @type {(x: number, y: number) => number} */
   const blob = (x, y) => blobs.reduce((s, b) => s + b.a * Math.exp(-((x - b.x) ** 2 + (y - b.y) ** 2) / (2 * b.s * b.s)), 0);
-  const ridge = n => 1 - Math.abs(2 * n - 1);
-  let maxH, f;
+  const ridge = (/** @type {number} */ n) => 1 - Math.abs(2 * n - 1);
+  /** @type {number} */
+  let maxH;
+  /** @type {(x: number, y: number, a: number, b: number, c: number) => number} */
+  let f;
   switch (mode) {
     case 'mountains':
       maxH = 8; addBlobs(2, 1.5, 2.3, 1.8);

@@ -1,5 +1,5 @@
 {
-  // Contrôle des types du JavaScript (JSDoc) sans compilation : npm run typecheck
+  // Contrôle des types du JavaScript (JSDoc) sans compilation : npm run typecheck (core/ et server/ aussi en strict : tsconfig.strict.json)
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
@@ -13,6 +13,6 @@
     "resolveJsonModule": true,
     "types": ["vite/client"]
   },
-  "include": ["core", "web", "server/room.js"],
+  "include": ["core", "web", "server/*.js", "server/*.d.ts"],
   "exclude": ["dist", "node_modules"]
 }

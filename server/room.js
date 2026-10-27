@@ -3,10 +3,11 @@
 // des sockets et du stockage : il applique ce que renvoient ces méthodes. Testé dans tests/room.test.js.
 import { END, PROTOCOL, REJECT, ERROR, applyMove, findMove, startPosition, toWire } from '../core/index.js';
 
+/** @import { WireMove } from '../core/move.js' */
+/** @import { Result } from '../core/rules.js' */
 /**
  * @typedef {{ terrain: string, seed: number, tokens: (string | null)[], createdAt: number,
- *   result: { winner: number, reason: string, tiebreak?: string | null, resigned?: number } | null, rematch: boolean[] }} RoomMeta
- * @typedef {{ pi: number, kind: string, to: number }} WireMove
+ *   result: Result | null, rematch: boolean[] }} RoomMeta
  */
 
 export class RoomGame {
@@ -19,8 +20,13 @@ export class RoomGame {
 
   get exists() { return this.meta.seed !== undefined; }
 
-  /** Réglages d'un nouveau salon ; le créateur occupe la place side. @returns {RoomMeta} */
+  /**
+   * Réglages d'un nouveau salon ; le créateur occupe la place side.
+   * @param {{ terrain: string, seed: number, side: number, token: string, now: number }} init
+   * @returns {RoomMeta}
+   */
   static create({ terrain, seed, side, token, now }) {
+    /** @type {(string | null)[]} */
     const tokens = [null, null];
     tokens[side] = token;
     return { terrain, seed, tokens, createdAt: now, result: null, rematch: [false, false] };
@@ -39,6 +45,7 @@ export class RoomGame {
 
   /**
    * Un joueur arrive avec son jeton (reprise de sa place) ou sans (première place libre).
+   * @param {{ v: number, token: string | null }} msg @param {() => string} newToken
    * @returns {{ side: number, patch?: Partial<RoomMeta> } | { error: string }} patch : réglages modifiés à enregistrer
    */
   join({ v, token }, newToken) {
@@ -57,11 +64,12 @@ export class RoomGame {
 
   /**
    * Coup proposé par le camp side.
+   * @param {number} side @param {WireMove & { ply: number }} msg
    * @returns {{ reject: string } | { ply: number, move: WireMove, result: RoomMeta['result'] }}
    */
   play(side, { ply, pi, kind, to }) {
     const g = this.game;
-    if (this.meta.result || g.over) return { reject: REJECT.OVER };
+    if (!g || this.meta.result || g.over) return { reject: REJECT.OVER };
     if (ply !== g.ply) return { reject: REJECT.DESYNC };
     if (g.turn !== side) return { reject: REJECT.NOT_YOUR_TURN };
     const lm = findMove(g, { pi, kind, to });
@@ -70,16 +78,17 @@ export class RoomGame {
     const move = toWire(lm);
     this.moves.push(move);
     const s = this.game;
-    const result = s.over ? this.end({ winner: s.winner, reason: s.reason, tiebreak: s.tiebreak }) : null;
+    const result = s.over ? this.end({ winner: s.winner, reason: /** @type {string} */ (s.reason), tiebreak: s.tiebreak }) : null;
     return { ply: g.ply, move, result };
   }
 
-  /** Abandon du camp side ; null si la partie est déjà finie. */
+  /** Abandon du camp side ; null si la partie est déjà finie. @param {number} side */
   resign(side) {
-    if (this.meta.result || this.game.over) return null;
+    if (!this.game || this.meta.result || this.game.over) return null;
     return this.end({ winner: 1 - side, reason: END.RESIGN, resigned: side });
   }
 
+  /** @param {Result} result */
   end(result) {
     this.meta.result = result;
     this.meta.rematch = [false, false];
@@ -89,6 +98,7 @@ export class RoomGame {
   /**
    * Le camp side propose (ou accepte) une revanche. Quand les deux l'ont demandée : nouveau monde sur le même terrain,
    * couleurs échangées.
+   * @param {number} side @param {number} newSeed
    * @returns {null | { started: false } | { started: true }}
    */
   rematch(side, newSeed) {
@@ -104,11 +114,11 @@ export class RoomGame {
     return { started: true };
   }
 
-  /** Message d'état complet pour le camp side (à l'arrivée d'un joueur, après une revanche). */
+  /** Message d'état complet pour le camp side (à l'arrivée d'un joueur, après une revanche). @param {number} side @param {boolean} opponentHere */
   stateFor(side, opponentHere) {
     return {
       type: 'state', v: PROTOCOL, seed: this.meta.seed, terrain: this.meta.terrain, moves: this.moves, you: side,
-      token: this.meta.tokens[side], turn: this.game.turn, opponent: opponentHere,
+      token: this.meta.tokens[side], turn: this.game?.turn, opponent: opponentHere,
       result: this.meta.result, rematch: this.meta.rematch,
     };
   }

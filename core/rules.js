@@ -4,21 +4,25 @@
 import { N, NC, EXPLORER, VANGUARD, SENTINEL, MOVE, STR, ON_BOARD, CAPTURED, SCORED, MAX_PLIES, DRAW, END, TIEBREAK } from './constants.js';
 import { idx, cx, cy, goalRow, NEIGH } from './board.js';
 
+/** @import { Kind } from './constants.js' */
+/** @import { WireMove } from './move.js' */
 /**
  * @typedef {{ t: number, o: number, x: number, y: number, st: number }} Piece
  * @typedef {{
  *   h: Int8Array, cell: Int8Array, pieces: Piece[], turn: number, ply: number, score: number[], crossed: number,
  *   over: boolean, winner: number, reason: string | null, tiebreak: string | null, resigned?: number, passed: boolean,
- *   last: { pi: number, kind: string, to: number } | null
+ *   last: WireMove | null
  * }} State
+ * @typedef {{ winner: number, reason: string, tiebreak?: string | null, resigned?: number }} Result fin de partie
  * @typedef {{ att: number, def: number, base: number, height: number, vb: number, allies: number, dBase: number, reinf: number, defender: number }} Combat
- * @typedef {{ pi: number, kind: 'move' | 'attack' | 'exit', to: number, path: number[], cost: number, special?: 'diag' | 'jump', combat?: Combat }} Move
+ * @typedef {{ pi: number, kind: Kind, to: number, path: number[], cost: number, special?: 'diag' | 'jump', combat?: Combat }} Move
  */
 
-/** @returns {State} */
+/** @param {Int8Array} heights @returns {State} */
 export function newGame(heights) {
   const order = [SENTINEL, VANGUARD, EXPLORER, EXPLORER, VANGUARD, SENTINEL];
   const cell = new Int8Array(NC).fill(-1);
+  /** @type {Piece[]} */
   const pieces = [];
   for (let o = 0; o < 2; o++)
     order.forEach((t, k) => {
@@ -35,12 +39,13 @@ export function clone(s) {
 }
 
 // Dijkstra (coûts ≤ 5) : distance en points de Mouvement à travers les cases vides
+/** @param {State} s @param {number} pi */
 export function reach(s, pi) {
   const p = s.pieces[pi], mp = MOVE[p.t], H = s.h;
   const start = idx(p.x, p.y);
   // dist : points de Mouvement (≤ 5, 99 = hors d'atteinte) ; prev : indice de la case précédente, donc Int16
   const dist = new Int8Array(NC).fill(99), prev = new Int16Array(NC).fill(-1);
-  const buckets = Array.from({ length: mp + 1 }, () => []);
+  const buckets = Array.from({ length: mp + 1 }, () => /** @type {number[]} */ ([]));
   dist[start] = 0; buckets[0].push(start);
   for (let c = 0; c <= mp; c++)
     for (const u of buckets[c]) {
@@ -54,13 +59,18 @@ export function reach(s, pi) {
   return { dist, prev, start, mp };
 }
 
+/** @param {Int16Array} prev @param {number} v */
 function pathTo(prev, v) {
   const p = [v];
   while (prev[p[0]] !== -1) p.unshift(prev[p[0]]);
   return p;
 }
 
-/** Forces effectives d'une attaque de la pièce pi sur la case target. @returns {Combat} */
+/**
+ * Forces effectives d'une attaque de la pièce pi sur la case target.
+ * @param {State} s @param {number} pi @param {number} target @param {boolean} vanguardBonus
+ * @returns {Combat}
+ */
 export function combat(s, pi, target, vanguardBonus) {
   const p = s.pieces[pi], dpi = s.cell[target], d = s.pieces[dpi], H = s.h;
   const hs = H[idx(p.x, p.y)], ht = H[target];
@@ -79,7 +89,11 @@ export function combat(s, pi, target, vanguardBonus) {
   };
 }
 
-/** Tous les coups d'une pièce. dedupeExit : un seul coup de sortie par pièce (le moins coûteux). @returns {Move[]} */
+/**
+ * Tous les coups d'une pièce. dedupeExit : un seul coup de sortie par pièce (le moins coûteux).
+ * @param {State} s @param {number} pi
+ * @returns {Move[]}
+ */
 export function pieceMoves(s, pi, dedupeExit = false) {
   const p = s.pieces[pi];
   if (p.st !== ON_BOARD) return [];
@@ -90,6 +104,7 @@ export function pieceMoves(s, pi, dedupeExit = false) {
     if (v !== start && dist[v] <= mp) res.push({ pi, kind: 'move', to: v, path: pathTo(prev, v), cost: dist[v] });
 
   // attaques : entrer sur la case ennemie
+  /** @type {Map<number, { c: number, u: number }>} */
   const best = new Map();
   for (let u = 0; u < NC; u++) {
     if (dist[u] > mp) continue;
@@ -97,7 +112,7 @@ export function pieceMoves(s, pi, dedupeExit = false) {
       const q = s.cell[v];
       if (q < 0 || s.pieces[q].o === p.o) continue;
       const c = dist[u] + 1 + Math.abs(H[u] - H[v]);
-      if (c <= mp && (!best.has(v) || c < best.get(v).c)) best.set(v, { c, u });
+      if (c <= mp && c < (best.get(v)?.c ?? Infinity)) best.set(v, { c, u });
     }
   }
   for (const [v, { c, u }] of best) {
@@ -138,7 +153,7 @@ export function pieceMoves(s, pi, dedupeExit = false) {
   return res;
 }
 
-/** @returns {Move[]} */
+/** @param {State} s @returns {Move[]} */
 export function allMoves(s, dedupeExit = false) {
   /** @type {Move[]} */
   const res = [];
@@ -146,6 +161,24 @@ export function allMoves(s, dedupeExit = false) {
   return res;
 }
 
+/**
+ * Attaques que le camp by pourrait jouer s'il avait le trait : pièce visée → attaquants (rien si la partie est finie).
+ * @param {State} s @param {number} by @returns {Map<number, number[]>}
+ */
+export function attacksBy(s, by) {
+  /** @type {Map<number, number[]>} */
+  const map = new Map();
+  if (s.over) return map;
+  for (const m of allMoves({ ...s, turn: by }, true)) {
+    if (m.kind !== 'attack') continue;
+    const d = s.cell[m.to], list = map.get(d);
+    if (list) list.push(m.pi);
+    else map.set(d, [m.pi]);
+  }
+  return map;
+}
+
+/** @param {State} s */
 function hasAnyMove(s) {
   for (let pi = 0; pi < s.pieces.length; pi++) {
     const p = s.pieces[pi];
@@ -154,13 +187,15 @@ function hasAnyMove(s) {
   return false;
 }
 
+/** @param {State} s @param {number} winner @param {string} reason @param {string | null} tiebreak */
 function finish(s, winner, reason, tiebreak = null) { s.over = true; s.winner = winner; s.reason = reason; s.tiebreak = tiebreak; }
 
+/** @param {State} s @param {string} reason */
 function endByScore(s, reason) {
   if (s.score[0] !== s.score[1]) return finish(s, s.score[0] > s.score[1] ? 0 : 1, reason);
   if (s.score[0] > 0) return finish(s, DRAW, reason);
   // personne n'a marqué : pièce la plus proche de l'arrivée, puis la plus forte
-  const bestOf = o => {
+  const bestOf = (/** @type {number} */ o) => {
     let rows = Infinity, str = 0;
     for (const p of s.pieces) {
       if (p.o !== o || p.st !== ON_BOARD) continue;
@@ -175,7 +210,7 @@ function endByScore(s, reason) {
   finish(s, DRAW, reason);
 }
 
-/** @param {State} s0 @param {Move | { pi: number, kind: string, to: number }} m @returns {State} */
+/** @param {State} s0 @param {WireMove} m @returns {State} */
 export function applyMove(s0, m) {
   const s = clone(s0);
   const p = s.pieces[m.pi];
@@ -208,7 +243,10 @@ export function applyMove(s0, m) {
   return s;
 }
 
-/** Fin de partie décidée hors des règles (abandon, résultat imposé par le serveur) ; resigned : camp qui abandonne. */
+/**
+ * Fin de partie décidée hors des règles (abandon, résultat imposé par le serveur) ; resigned : camp qui abandonne.
+ * @param {State} s @param {Result} result @returns {State}
+ */
 export function withResult(s, { winner, reason, tiebreak = null, resigned = undefined }) {
   return { ...s, over: true, winner, reason, tiebreak, ...(resigned === undefined ? {} : { resigned }) };
 }

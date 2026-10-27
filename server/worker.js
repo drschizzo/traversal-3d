@@ -12,6 +12,9 @@
 import { DurableObject } from 'cloudflare:workers';
 import { CLOSE, CODE_LETTERS, CODE_LENGTH, CODE_RE, ERROR, KINDS, isSeed, isTerrain, parseClientMessage, randomSeed } from '../core/index.js';
 import { RoomGame } from './room.js';
+/** @import { Result } from '../core/rules.js' */
+/** @import { WireMove } from '../core/move.js' */
+/** @import { RoomMeta } from './room.js' */
 
 const TTL = 24 * 3600 * 1000;
 
@@ -21,6 +24,7 @@ const CORS = {
   'Access-Control-Allow-Headers': 'Content-Type',
   'Access-Control-Max-Age': '86400',
 };
+/** @type {(data: unknown, status?: number) => Response} */
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', ...CORS } });
 
 const randomCode = () => Array.from(crypto.getRandomValues(new Uint8Array(CODE_LENGTH)), b => CODE_LETTERS[b % CODE_LETTERS.length]).join('');
@@ -29,7 +33,9 @@ const randomToken = () => Array.from(crypto.getRandomValues(new Uint8Array(16)),
 // Limite de création de salons par IP. Elle ne vaut que pour l'isolat qui reçoit la requête :
 // c'est un garde-fou contre un script naïf, pas une protection garantie.
 const RATE_WINDOW = 60_000, RATE_MAX = 10;
+/** @type {Map<string, number[]>} */
 const recent = new Map();
+/** @param {string} ip */
 function rateLimited(ip) {
   const now = Date.now(), list = (recent.get(ip) || []).filter(t => now - t < RATE_WINDOW);
   list.push(now);
@@ -39,6 +45,7 @@ function rateLimited(ip) {
 }
 
 export default {
+  /** @param {Request} request @param {Env} env */
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === '/room' || url.pathname.startsWith('/room/')) {
@@ -46,6 +53,7 @@ export default {
 
       if (url.pathname === '/room' && request.method === 'POST') {
         if (rateLimited(request.headers.get('CF-Connecting-IP') || '')) return json({ error: ERROR.RATE }, 429);
+        /** @type {{ terrain?: unknown, seed?: unknown, side?: unknown }} */
         let body = {};
         try { body = await request.json(); } catch {}
         const terrain = isTerrain(body.terrain) ? body.terrain : 'random';
@@ -59,7 +67,7 @@ export default {
         return json({ error: ERROR.UNAVAILABLE }, 503);
       }
 
-      const m = url.pathname.match(/^\/room\/([A-Za-z]{6})\/ws$/);
+      const m = url.pathname.match(/^\/room\/([A-Za-z]+)\/ws$/);
       if (m && request.method === 'GET') {
         const code = m[1].toUpperCase();
         if (!CODE_RE.test(code)) return json({ error: ERROR.BAD_CODE }, 404);
@@ -76,10 +84,13 @@ export default {
 // Un salon : le stockage SQLite garde les réglages (table meta) et les coups en ajout seul (table moves) ;
 // la position est tenue en mémoire (RoomGame) et reconstruite au réveil en rejouant les coups.
 export class Room extends DurableObject {
+  /** @param {DurableObjectState} ctx @param {Env} env */
   constructor(ctx, env) {
     super(ctx, env);
     const sql = ctx.storage.sql;
-    let meta = {}, moves = [];
+    let meta = {};
+    /** @type {WireMove[]} */
+    let moves = [];
     // les tables ne sont créées qu'avec le salon : un code inconnu n'écrit rien (et ne laisse rien à purger)
     if (sql.exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'meta'").toArray().length) {
       meta = Object.fromEntries(sql.exec('SELECT k, v FROM meta').toArray().map(r => [r.k, JSON.parse(r.v)]));
@@ -89,12 +100,15 @@ export class Room extends DurableObject {
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
   }
 
-  // enregistre les réglages modifiés
+  /** enregistre les réglages modifiés @param {string[]} keys */
   persist(keys) {
-    for (const k of keys) this.ctx.storage.sql.exec('INSERT OR REPLACE INTO meta (k, v) VALUES (?, ?)', k, JSON.stringify(this.room.meta[k]));
+    for (const k of keys) this.ctx.storage.sql.exec('INSERT OR REPLACE INTO meta (k, v) VALUES (?, ?)', k, JSON.stringify(this.room.meta[/** @type {keyof RoomMeta} */ (k)]));
   }
 
-  // appelé par le Worker (RPC) ; null si ce code est déjà pris
+  /**
+   * appelé par le Worker (RPC) ; null si ce code est déjà pris
+   * @param {{ terrain: string, seed: number, side: number }} init
+   */
   async create({ terrain, seed, side }) {
     if (this.room.exists) return null;
     const sql = this.ctx.storage.sql;
@@ -114,16 +128,20 @@ export class Room extends DurableObject {
     return new Response(null, { status: 101, webSocket: client });
   }
 
+  /** @param {number} side */
   sockets(side) {
     return this.ctx.getWebSockets().filter(ws => ws.deserializeAttachment()?.side === side);
   }
 
+  /** @param {CfWebSocket} ws @param {object} msg */
   send(ws, msg) { try { ws.send(JSON.stringify(msg)); } catch {} }
 
+  /** @param {object} msg */
   broadcast(msg) {
     for (const ws of this.ctx.getWebSockets()) if (ws.deserializeAttachment()?.side >= 0) this.send(ws, msg);
   }
 
+  /** @param {CfWebSocket} ws @param {string | ArrayBuffer} raw */
   async webSocketMessage(ws, raw) {
     const msg = parseClientMessage(raw);
     if (!msg) return;
@@ -187,17 +205,20 @@ export class Room extends DurableObject {
     }
   }
 
+  /** @param {Result} result */
   ended(result) {
     this.persist(['result', 'rematch']);
     this.broadcast({ type: 'over', ...result });
   }
 
+  /** @param {CfWebSocket} ws @param {number} code */
   async webSocketClose(ws, code) {
     const side = ws.deserializeAttachment()?.side;
     try { ws.close(code === 1005 ? 1000 : code, 'bye'); } catch {}
     if (side >= 0 && !this.sockets(side).some(o => o !== ws)) for (const o of this.sockets(1 - side)) this.send(o, { type: 'opponent', status: 'left' });
   }
 
+  /** @param {CfWebSocket} ws */
   async webSocketError(ws) { await this.webSocketClose(ws, 1011); }
 
   // purge 24 h après la dernière activité

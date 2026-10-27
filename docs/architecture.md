@@ -136,7 +136,7 @@ version de ces deux modules.
 | Commande | Ce qu'elle vérifie |
 |---|---|
 | `npm run lint` | erreurs probables (ESLint) |
-| `npm run typecheck` | types (JSDoc, TypeScript sans compilation) |
+| `npm run typecheck` | types (JSDoc, TypeScript sans compilation) : `tsconfig.json` pour tout, `tsconfig.strict.json` en mode strict pour `core/` et `server/` |
 | `npm test` | règles, parité avec Rust, liens, moteur WebAssembly, explications, client du bot, phases, portées, annonces, salons |
 | `npm run e2e` | le jeu construit dans Chromium : bot contre bot, partie par lien et son analyse, partie en ligne |
 | `cargo test` (dans `engine/`) | interface WebAssembly du moteur |
